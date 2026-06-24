@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.env
+
+# local verification artifacts
+.playwright-mcp
+app-*.png
+proto-*.png
+stride-*.png

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Stride — workout app</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: #0a0a0a;
+      font-family: 'Inter', -apple-system, system-ui, sans-serif;
+      color: #0a0a0a;
+      -webkit-font-smoothing: antialiased;
+    }
+    input, textarea, button { font-family: inherit; }
+    .screen-scroll::-webkit-scrollbar { display: none; }
+    @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.08); opacity: .9; } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes bob { 0%,100% { transform: translateY(0); opacity: .4; } 50% { transform: translateY(-3px); opacity: 1; } }
+    @keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    @keyframes facePop { 0% { transform: scale(.9); } 60% { transform: scale(1.04); } 100% { transform: scale(1); } }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+
+    /* Login gate (shown before the prototype boots) */
+    #stride-login .lg-wrap {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: #0a0a0a; padding: 24px; z-index: 1000;
+    }
+    #stride-login .lg-card {
+      width: 100%; max-width: 380px; background: #f4f1ea; border-radius: 28px;
+      padding: 34px 28px; box-shadow: 0 30px 80px rgba(0,0,0,.5);
+    }
+    #stride-login .lg-brand { font-family: 'Archivo', sans-serif; font-weight: 900; font-size: 46px; letter-spacing: -2px; color: #0a0a0a; }
+    #stride-login .lg-sub { color: #8a8478; margin: 4px 0 24px; font-size: 14px; }
+    #stride-login .lg-msg { background: #fff; border: 1px solid #e5e1d6; border-radius: 10px; padding: 10px 12px; font-size: 13px; color: #3a3a3a; margin-bottom: 14px; }
+    #stride-login .lg-label { display: block; font-size: 12px; font-weight: 700; color: #3a3a3a; margin: 12px 0 6px; }
+    #stride-login .lg-input { width: 100%; padding: 14px; border: 1px solid #e5e1d6; border-radius: 12px; font-size: 15px; background: #fff; outline: none; }
+    #stride-login .lg-input:focus { border-color: #0a0a0a; }
+    #stride-login .lg-err { color: #e11d48; font-size: 13px; font-weight: 600; min-height: 18px; margin-top: 8px; }
+    #stride-login .lg-btn {
+      width: 100%; border: none; border-radius: 14px; background: #ff4d1f; color: #fff; padding: 15px; margin-top: 6px;
+      font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 15px; letter-spacing: .4px; text-transform: uppercase; cursor: pointer;
+    }
+    #stride-login .lg-btn:disabled { opacity: .6; cursor: default; }
+    #stride-login .lg-hint { text-align: center; font-size: 12px; color: #8a8478; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React + Babel (same runtime the prototype was authored against) -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+  <!-- Boots the prototype 1:1 with live API data + login gate -->
+  <script src="/bridge.js"></script>
+</body>
+</html>
