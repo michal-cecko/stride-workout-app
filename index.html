@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Stride — workout app</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <!-- Self-hosted fonts (Archivo / Inter / JetBrains Mono, latin + latin-ext for
+       EN+SK) so the app renders offline with no CDN round-trips. -->
+  <link rel="stylesheet" href="/fonts/fonts.css" />
 
   <style>
     * { box-sizing: border-box; }
@@ -54,16 +54,20 @@
 <body>
   <div id="root"></div>
 
-  <!-- React + Babel (same runtime the prototype was authored against) -->
-  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+  <!-- Self-hosted React 18.3.1 UMD (window.React / window.ReactDOM) — the runtime
+       the prototype was authored against. No runtime JSX compiler: the JSX is
+       precompiled to /proto/bundle.js at build time (see vite.config.ts). -->
+  <script src="/vendor/react.production.min.js"></script>
+  <script src="/vendor/react-dom.production.min.js"></script>
 
-  <!-- On the native (Capacitor) build, localhost is unreachable — point the app
-       at the deployed Stride API. Web dev keeps bridge.js's localhost default. -->
+  <!-- Native (Capacitor) detection. On device we (1) can't reach localhost, so we
+       point at the deployed Stride API, and (2) drop the prototype's simulated
+       device frame — the real phone supplies the status bar / safe areas. The
+       browser/editor prototype leaves STRIDE_NATIVE unset and keeps the frame. -->
   <script>
     if (location.protocol === 'capacitor:' || location.protocol === 'ionic:' ||
         (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) {
+      window.STRIDE_NATIVE = true;
       window.STRIDE_API_BASE = 'https://dashboard.cecko.dev/api/stride';
     }
   </script>

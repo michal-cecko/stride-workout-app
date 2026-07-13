@@ -179,7 +179,9 @@ function StrideBottomNav({ tab, onTab, onMore }) {
       position: 'absolute', left: 0, right: 0, bottom: 0,
       background: T.surface,
       borderTop: `1px solid ${T.line}`,
-      paddingTop: 8, paddingBottom: 24,
+      paddingTop: 8,
+      // Native: clear the real home-indicator area; browser: fixed mock gap.
+      paddingBottom: window.STRIDE_NATIVE ? 'max(env(safe-area-inset-bottom), 12px)' : 24,
       display: 'flex', justifyContent: 'space-around', alignItems: 'center',
       zIndex: 30,
     }}>
@@ -335,7 +337,8 @@ function Screen({ children, padded = true, style }) {
       overflowY: 'auto', overflowX: 'hidden',
       position: 'relative',
       paddingTop: window.STRIDE_SAFE_TOP,
-      paddingBottom: 100, // room for bottom nav
+      // Room for the bottom nav; native adds the home-indicator inset on top.
+      paddingBottom: window.STRIDE_NATIVE ? 'calc(100px + env(safe-area-inset-bottom))' : 100,
       ...(padded ? {} : {}),
       ...style,
     }}>

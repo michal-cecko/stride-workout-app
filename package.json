@@ -12,6 +12,7 @@
     "ios": "vite build && cap sync ios && cap open ios"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "vite": "^6.0.0"
   },
   "dependencies": {

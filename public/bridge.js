@@ -9,11 +9,8 @@
  */
 (function () {
   var API = window.STRIDE_API_BASE || 'http://localhost:8100/api/stride';
-  var PROTO = '/proto';
-  // Order matters: data → data-live (override) → i18n-sk (dict) → i18n (engine,
-  // patches createElement) → ui → screens → app (mounts).
-  var FILES = ['ios-frame', 'android-frame', 'data', 'data-live', 'i18n-sk', 'i18n', 'ui',
-    'screens-main', 'screens-spots', 'screens-meta', 'screens-train', 'screens-onboarding', 'app'];
+  // The prototype now loads as one precompiled bundle (/proto/bundle.js); the
+  // build order lives in vite.config.ts (PROTO_FILES). See bootProto() below.
   var token = localStorage.getItem('stride_token');
   // Display locale for dates/numbers; updated from the user's language at load.
   var LOCALE = (localStorage.getItem('stride_lang') === 'sk') ? 'sk-SK' : 'en-US';
@@ -402,19 +399,19 @@
     }).catch(function () {});
   };
 
-  // ---- boot the prototype in order -------------------------------------------
-  // Use Babel's own ordered script-tag runner (the exact mechanism the original
-  // Workout App.html uses) so cross-file globals + execution order behave 1:1.
+  // ---- boot the prototype -----------------------------------------------------
+  // Load the single precompiled bundle (all proto/*.jsx concatenated in order and
+  // JSX-transformed at build time — see vite.config.ts's strideProto plugin). It's
+  // one classic script, so cross-file globals + execution order behave 1:1 with the
+  // old runtime-Babel path, minus the on-device transpile + CDN.
   function bootProto() {
-    FILES.forEach(function (f) {
+    return new Promise(function (resolve, reject) {
       var s = document.createElement('script');
-      s.type = 'text/babel';
-      s.setAttribute('data-presets', 'react');
-      s.src = PROTO + '/' + f + '.jsx';
+      s.src = '/proto/bundle.js';
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error('Failed to load /proto/bundle.js')); };
       document.body.appendChild(s);
     });
-    window.Babel.transformScriptTags();
-    return Promise.resolve();
   }
 
   function boot() {

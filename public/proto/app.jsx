@@ -1,8 +1,11 @@
 // App root — routing, persona state, screen orchestration.
 
 function StrideApp({ frame }) {
-  // Set safe-area top padding based on device frame
-  window.STRIDE_SAFE_TOP = frame === 'android' ? 40 : 56;
+  // Safe-area top padding. Native (Capacitor) uses the real device inset; the
+  // browser prototype uses a fixed value that clears its simulated status bar.
+  window.STRIDE_SAFE_TOP = window.STRIDE_NATIVE
+    ? 'max(env(safe-area-inset-top), 12px)'
+    : (frame === 'android' ? 40 : 56);
 
   // Read tweaks from URL or use defaults
   const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -74,7 +77,29 @@ function StrideApp({ frame }) {
   // Status bar darkness depends on screen
   const darkStatus = screen === 'active';
 
-  // Device frame
+  // Inner app tree — shared by the native full-bleed path and the browser
+  // device-frame path.
+  const inner = (
+    <div style={{ width: '100%', height: '100%', position: 'relative', background: window.STRIDE_THEME.bg }}>
+      {content}
+      {showBottomNav && (
+        <StrideBottomNav tab={activeTab} onTab={go}/>
+      )}
+    </div>
+  );
+
+  // Native (Capacitor): fill the real screen, no simulated device frame. The
+  // phone supplies the status bar / home indicator; safe-area insets (applied
+  // inside Screen / StrideBottomNav) clear the notch and home-indicator areas.
+  if (window.STRIDE_NATIVE) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: window.STRIDE_THEME.bg, overflow: 'hidden' }}>
+        {inner}
+      </div>
+    );
+  }
+
+  // Browser / editor: keep the simulated device frame (the prototype's design view).
   const isAndroid = frame === 'android';
   const Device = isAndroid ? window.AndroidDevice : window.IOSDevice;
   const width = isAndroid ? 412 : 402;
@@ -82,12 +107,7 @@ function StrideApp({ frame }) {
 
   return (
     <Device width={width} height={height} dark={darkStatus}>
-      <div style={{ width: '100%', height: '100%', position: 'relative', background: window.STRIDE_THEME.bg }}>
-        {content}
-        {showBottomNav && (
-          <StrideBottomNav tab={activeTab} onTab={go}/>
-        )}
-      </div>
+      {inner}
     </Device>
   );
 }
@@ -120,7 +140,11 @@ function StrideRoot() {
   }, [accent]);
 
   return (
-    <div style={{
+    <div style={window.STRIDE_NATIVE ? {
+      // Native: the app fills the viewport (StrideApp is position:fixed inset:0).
+      width: '100%', minHeight: '100vh', background: window.STRIDE_THEME.bg,
+    } : {
+      // Browser / editor: dark canvas that centers/letterboxes the device mock.
       width: '100vw', minHeight: '100vh',
       background: '#0a0a0a',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
