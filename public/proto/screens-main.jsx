@@ -1577,7 +1577,8 @@ function PlanMonthView({ go, persona }) {
 
 function PlanBlockView({ go, persona }) {
   const blocks = window.STRIDE_BLOCKS || [];
-  const [openBlock, setOpenBlock] = React.useState(null);
+  // Open a block's standalone detail page (the coach chat lives there, as a slide-over).
+  const open = (b) => { window.__strideOpenBlockId = b.rawId; go('block-detail'); };
 
   const active = blocks.filter(b => b.status === 'active');
   const upcoming = blocks.filter(b => b.status === 'upcoming');
@@ -1585,13 +1586,13 @@ function PlanBlockView({ go, persona }) {
 
   return (
     <div style={{ padding: '0 20px' }}>
-      {active.map(b => <ActiveBlockCard key={b.id} block={b} onOpen={() => setOpenBlock(b)}/>)}
+      {active.map(b => <ActiveBlockCard key={b.id} block={b} onOpen={() => open(b)}/>)}
 
       {upcoming.length > 0 && (
         <div style={{ marginTop: 18 }}>
           <SectionHeader title="Upcoming"/>
           <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {upcoming.map(b => <BlockRow key={b.id} block={b} onOpen={() => setOpenBlock(b)}/>)}
+            {upcoming.map(b => <BlockRow key={b.id} block={b} onOpen={() => open(b)}/>)}
           </div>
         </div>
       )}
@@ -1600,7 +1601,7 @@ function PlanBlockView({ go, persona }) {
         <div style={{ marginTop: 18 }}>
           <SectionHeader title="Completed" right={<Chip bg={TT.lineSoft}>{past.length}</Chip>}/>
           <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {past.slice().reverse().map(b => <BlockRow key={b.id} block={b} onOpen={() => setOpenBlock(b)} past/>)}
+            {past.slice().reverse().map(b => <BlockRow key={b.id} block={b} onOpen={() => open(b)} past/>)}
           </div>
         </div>
       )}
@@ -1609,12 +1610,6 @@ function PlanBlockView({ go, persona }) {
         <StrideButton variant="ghost" block icon="plus">Plan a new block</StrideButton>
       </div>
       <div style={{ height: 24 }}/>
-
-      {openBlock && (
-        <Sheet title={openBlock.name} onClose={() => setOpenBlock(null)}>
-          <BlockDetailBody block={openBlock} go={go} persona={persona}/>
-        </Sheet>
-      )}
     </div>
   );
 }
@@ -1673,14 +1668,55 @@ function BlockRow({ block: b, onOpen, past }) {
   );
 }
 
-function BlockDetailBody({ block: b, go, persona }) {
+// Standalone block-detail PAGE. The coach conversation isn't inline here — it's a
+// slide-over opened from the "Edit this block with {coach}" CTA (or the header
+// chat icon). The page itself shows the block overview, sessions and the applied
+// change history.
+function BlockDetailScreen({ go, persona }) {
   const [openSession, setOpenSession] = React.useState(null);
-  const meta = blockStatusMeta(b.status);
-  const pct = b.weekOf ? Math.round((b.weekOf / b.weeks) * 100) : (b.status === 'done' ? 100 : 0);
+  const [chatOpen, setChatOpen] = React.useState(false);
   const trainer = (persona && persona.name) || 'Coach';
+  // Derive from live globals each render so applied coach edits show immediately.
+  const block = (window.STRIDE_BLOCKS || []).find((x) => x.rawId != null && x.rawId === window.__strideOpenBlockId);
+
+  React.useEffect(() => { if (!block) go('plan'); }, []);
+  if (!block) return null;
+
+  const kicker = `${block.phase || ''}${block.weekOf ? ' · ' + window.t('Week {w} of {total}', { w: block.weekOf, total: block.weeks }) : ''}`;
 
   return (
-    <div style={{ maxHeight: '64vh', overflowY: 'auto', margin: '0 -22px', padding: '4px 22px 8px' }}>
+    <Screen padded={false} style={{ display: 'flex', flexDirection: 'column' }}>
+      <StrideHeader title={block.name} kicker={kicker} back onBack={() => go('plan')}
+        right={<IconBtn icon="chat" onClick={() => setChatOpen(true)}/>}/>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 100px' }}>
+        <BlockDetailBody block={block} trainer={trainer}
+          onOpenSession={setOpenSession} onEditCoach={() => setChatOpen(true)}/>
+      </div>
+
+      {openSession && (
+        <Sheet title={openSession.title} onClose={() => setOpenSession(null)}>
+          <SessionDetail session={openSession} go={go} persona={persona} onClose={() => setOpenSession(null)}/>
+        </Sheet>
+      )}
+      {chatOpen && (
+        <Sheet title={window.t('Edit this block with {name}', { name: trainer })} onClose={() => setChatOpen(false)}>
+          <BlockCoachChat block={block} trainer={trainer}/>
+        </Sheet>
+      )}
+    </Screen>
+  );
+}
+
+// Inner content of the block page: overview, sessions, the coach CTA, change history.
+function BlockDetailBody({ block, trainer, onOpenSession, onEditCoach }) {
+  // Re-derive (the parent may hold a ref from before a coach edit was applied).
+  const b = (window.STRIDE_BLOCKS || []).find((x) => x.rawId != null && x.rawId === block.rawId) || block;
+  const meta = blockStatusMeta(b.status);
+  const pct = b.weekOf ? Math.round((b.weekOf / b.weeks) * 100) : (b.status === 'done' ? 100 : 0);
+  const pending = (b.pending || []).length;
+
+  return (
+    <div>
       {/* Overview */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <Chip bg={meta.color + '18'} ink={meta.color} dot color={meta.color}>{meta.label}</Chip>
@@ -1701,11 +1737,28 @@ function BlockDetailBody({ block: b, go, persona }) {
       <div style={{ marginTop: 20 }}>
         <SectionHeader title="Sessions" right={<Chip bg={TT.lineSoft}>{b.sessions.length}</Chip>}/>
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {b.sessions.map((s, i) => <BlockSessionRow key={i} s={s} onOpen={() => setOpenSession(s)}/>)}
+          {b.sessions.map((s, i) => <BlockSessionRow key={i} s={s} onOpen={() => onOpenSession(s)}/>)}
         </div>
       </div>
 
-      {/* Scoped AI changes */}
+      {/* Edit the whole block with the coach — opens the conversation as a slide-over */}
+      {b.rawId != null && (
+        <button onClick={onEditCoach} style={{
+          marginTop: 18, width: '100%', padding: '13px 16px', borderRadius: 14, background: TT.ink, border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
+          fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13.5, color: '#fff',
+        }}>
+          <StrideIcon name="chat" size={17} color="#fff"/>
+          {window.t('Edit this block with {name}', { name: trainer })}
+          {pending > 0 && (
+            <span style={{ background: TT.accent, color: '#fff', borderRadius: 999, fontSize: 11, fontWeight: 800, padding: '1px 7px' }}>
+              {window.t('{n} pending', { n: pending })}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Applied changes (history) */}
       <div style={{ marginTop: 22 }}>
         <SectionHeader title={`${trainer}'s changes`} right={<Chip bg={TT.lineSoft}>{b.changes.length}</Chip>}/>
         {b.changes.length === 0 ? (
@@ -1730,14 +1783,62 @@ function BlockDetailBody({ block: b, go, persona }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
 
-      <div style={{ height: 8 }}/>
+// A coach chat scoped to ONE block: prompts bulk-edit every session in it, each
+// change staged as a proposal (Apply/Dismiss). Modelled on the main ChatScreen.
+function BlockCoachChat({ block, trainer }) {
+  const rawId = block.rawId;
+  const greeting = { who: 'ai', text: window.t('Tell me how to change this block — I’ll apply it to every session. e.g. “always start with calisthenics first.”') };
+  // Seed pending proposals (from /blocks) only as a fallback; once the real
+  // conversation loads, its messages carry the same proposals inline (no dupes).
+  const pendingMsgs = (block.pending || []).map((p) => ({ who: 'ai', text: '', proposals: [p] }));
+  const [messages, setMessages] = React.useState(() => (pendingMsgs.length ? [greeting, ...pendingMsgs] : [greeting]));
+  const [input, setInput] = React.useState('');
+  const [typing, setTyping] = React.useState(false);
+  const scrollRef = React.useRef(null);
 
-      {openSession && (
-        <Sheet title={openSession.title} onClose={() => setOpenSession(null)}>
-          <SessionDetail session={openSession} go={go} persona={persona} onClose={() => setOpenSession(null)}/>
-        </Sheet>
-      )}
+  // Pull any prior conversation for this block once — it already includes the
+  // pending proposals inline, so it REPLACES the fallback seed (avoids duplicates).
+  React.useEffect(() => {
+    if (!rawId || !(window.__strideCoach && window.__strideCoach.loadBlockChat)) return;
+    window.__strideCoach.loadBlockChat(rawId)
+      .then((res) => { if (res.messages && res.messages.length) setMessages(res.messages); })
+      .catch(() => {});
+  }, [rawId]);
+
+  React.useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, typing]);
+
+  const send = (text) => {
+    const t = (text || input).trim();
+    if (!t || !rawId || !window.__strideCoach) return;
+    setMessages((m) => [...m, { who: 'me', text: t }]);
+    setInput('');
+    setTyping(true);
+    window.__strideCoach.sendToBlock(rawId, t)
+      .then((reply) => { setTyping(false); setMessages((m) => [...m, reply]); })
+      .catch(() => { setTyping(false); setMessages((m) => [...m, { who: 'ai', text: window.t('Sorry — I couldn’t reach your coach just now.') }]); });
+  };
+
+  return (
+    <div style={{ marginTop: 22 }}>
+      <SectionHeader title={window.t('Edit this block with {name}', { name: trainer })}/>
+      <div style={{ marginTop: 10, background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 16, padding: 12 }}>
+        <div ref={scrollRef} style={{ maxHeight: '46vh', minHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 10 }}>
+          {messages.map((m, i) => <ChatBubble key={i} m={m} onCard={() => {}}/>)}
+          {typing && <ChatBubble m={{ who: 'ai', text: '…', typing: true }}/>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: TT.bg, border: `1px solid ${TT.line}`, borderRadius: 999, padding: '5px 6px 5px 14px' }}>
+          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()}
+            placeholder={window.t('Ask {name} to change this block…', { name: trainer })}
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontFamily: 'Inter', fontSize: 13.5, color: TT.ink, padding: '7px 0' }}/>
+          <button onClick={() => send()} aria-label="Send" style={{ width: 36, height: 36, borderRadius: 999, background: TT.ink, border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <StrideIcon name="send" size={16} color="#fff"/>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2318,6 +2419,6 @@ function ToggleRow({ icon, label, sub, on, onChange, last }) {
 }
 
 Object.assign(window, {
-  HomeScreen, PlanScreen, WeightScreen, ProfileScreen, AICoachScreen,
+  HomeScreen, PlanScreen, WeightScreen, ProfileScreen, AICoachScreen, BlockDetailScreen,
   Sheet, SectionHeader, BigStat, ToggleSeg, Row, SessionDetail,
 });

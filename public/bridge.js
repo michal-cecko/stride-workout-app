@@ -260,13 +260,17 @@
         window.__STRIDE_LIVE.STRIDE_BLOCKS = r[0].map(function (d) {
           var b = d.block;
           return {
-            id: 'blk-' + b.id, name: b.name, phase: b.phase, status: b.status, weeks: b.weeks, weekOf: b.week_of,
+            id: 'blk-' + b.id, rawId: b.id, name: b.name, phase: b.phase, status: b.status, weeks: b.weeks, weekOf: b.week_of,
             dates: fmtDate(b.starts_on) + ' – ' + fmtDate(b.ends_on), summary: b.summary || '', accent: b.accent || '#FF4D1F',
             stats: b.stats || [],
             sessions: (b.sessions || []).map(function (s) {
               return { id: s.id, day: s.day, date: s.date, kind: s.kind, title: s.title, status: s.status, volume: s.volume, duration: s.duration };
             }),
-            changes: [],
+            // Applied coach edits (block change history) + still-pending proposals.
+            changes: (b.changes || []).map(function (c) {
+              return { id: c.id, icon: adjIcon(c.kind), kind: c.kind, target: c.target, text: c.text, why: c.why, when: c.when };
+            }),
+            pending: b.pending || [],
           };
         });
         window.__STRIDE_LIVE.STRIDE_INJURIES = r[1].map(function (d) {
@@ -316,6 +320,7 @@
   // ---- coach bridge (ChatScreen → real API) ----------------------------------
   function setupCoach() {
     var convId = null;
+    var blockConvIds = {}; // rawBlockId → conversation id (block-scoped chats)
     function ensureConv() {
       if (convId) return Promise.resolve(convId);
       return api('/coach/conversations').then(function (list) {
@@ -329,28 +334,73 @@
         return { kind: /injur/i.test(a.kind) ? 'injury' : 'session', title: a.text, subtitle: a.why || a.target || '' };
       });
     }
+    // Coach edits are proposed → confirmed: a plan-edit (it has an `operation`)
+    // renders as a ProposalCard (Apply/Dismiss when proposed, "Applied" once done);
+    // everything else (e.g. an injury log) becomes a navigation card.
+    function splitAdjustments(adjs) {
+      var proposals = [], other = [];
+      (adjs || []).forEach(function (a) { (a.operation ? proposals : other).push(a); });
+      return { proposals: proposals, cards: adjToCards(other) };
+    }
+    function toMessage(role, content, adjustments) {
+      var split = splitAdjustments(adjustments);
+      return { who: role === 'user' ? 'me' : 'ai', text: content, proposals: split.proposals, cards: split.cards };
+    }
     window.__strideCoach = {
       send: function (text) {
         return ensureConv().then(function (id) {
           return api('/coach/conversations/' + id + '/messages', { method: 'POST', body: JSON.stringify({ message: text }) });
         }).then(function (res) {
           var m = res.message;
-          return { who: 'ai', text: m.content, cards: adjToCards(m.adjustments) };
+          return toMessage('assistant', m.content, m.adjustments);
         });
       },
+      applyProposal: function (id) {
+        return api('/coach/proposals/' + id + '/apply', { method: 'POST' }).then(function (res) {
+          if (window.__strideRefresh) window.__strideRefresh(); // refresh affected screens in the background
+          return res;
+        });
+      },
+      dismissProposal: function (id) {
+        return api('/coach/proposals/' + id + '/dismiss', { method: 'POST' });
+      },
+      // Block-scoped chat: a conversation per block that edits the WHOLE block.
+      loadBlockChat: function (blockId) {
+        return api('/coach/blocks/' + blockId + '/conversation').then(function (res) {
+          blockConvIds[blockId] = res.conversation.id;
+          var msgs = (res.conversation.messages || []).map(function (m) { return toMessage(m.role, m.content, m.adjustments); });
+          return { convId: res.conversation.id, messages: msgs };
+        });
+      },
+      sendToBlock: function (blockId, text) {
+        var idP = blockConvIds[blockId]
+          ? Promise.resolve(blockConvIds[blockId])
+          : api('/coach/blocks/' + blockId + '/conversation').then(function (res) { blockConvIds[blockId] = res.conversation.id; return res.conversation.id; });
+        return idP.then(function (id) {
+          return api('/coach/conversations/' + id + '/messages', { method: 'POST', body: JSON.stringify({ message: text }) });
+        }).then(function (res) { return toMessage('assistant', res.message.content, res.message.adjustments); });
+      },
     };
-    // Seed the chat with existing history (or a greeting).
+    // Seed the chat with existing history (or a greeting). Pending proposals in the
+    // history come back actionable, so they survive a reload.
     return ensureConv()
       .then(function (id) { return api('/coach/conversations/' + id); })
       .then(function (res) {
-        var msgs = (res.conversation.messages || []).map(function (m) {
-          return { who: m.role === 'user' ? 'me' : 'ai', text: m.content, cards: adjToCards(m.adjustments) };
-        });
+        var msgs = (res.conversation.messages || []).map(function (m) { return toMessage(m.role, m.content, m.adjustments); });
         window.__STRIDE_LIVE.STRIDE_CHAT_SEED = msgs.length ? msgs
           : [{ who: 'ai', text: "Morning. I'm your coach — ask me to adjust today's session (go lighter, swap a lift, add a set) or flag a niggle and I'll program around it." }];
       })
       .catch(function () { /* keep mock chat seed on failure */ });
   }
+
+  // Re-pull live data into the STRIDE_* globals and re-render — used after a coach
+  // change is applied so Home/Plan/blocks reflect it without a full page reload.
+  window.__strideRefresh = function () {
+    return loadLive().then(function () {
+      if (window.__STRIDE_LIVE) Object.assign(window, window.__STRIDE_LIVE);
+      if (window.__strideRerender) window.__strideRerender();
+    }).catch(function () {});
+  };
 
   // ---- boot the prototype in order -------------------------------------------
   // Use Babel's own ordered script-tag runner (the exact mechanism the original

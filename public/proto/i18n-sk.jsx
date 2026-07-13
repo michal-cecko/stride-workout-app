@@ -411,6 +411,20 @@ window.STRIDE_I18N = {
     'Min': 'Min',
     'Sec': 'Sek',
 
+    // ── coach: propose → confirm ──
+    'Proposed change': 'Navrhovaná zmena',
+    'Apply': 'Použiť',
+    'Applying…': 'Aplikujem…',
+    'Applied': 'Použité',
+    'Dismiss': 'Zahodiť',
+
+    // ── block coach ──
+    'Edit this block with {name}': 'Uprav tento blok s {name}',
+    '{n} pending': '{n} čaká',
+    'Ask {name} to change this block…': 'Popros {name} o zmenu tohto bloku…',
+    'Tell me how to change this block — I’ll apply it to every session. e.g. “always start with calisthenics first.”': 'Povedz mi, ako zmeniť tento blok — použijem to na každý tréning. napr. „vždy začínať kalistenikou“.',
+    'Sorry — I couldn’t reach your coach just now.': 'Prepáč — práve teraz sa nedá spojiť s koučom.',
+
     // ── onboarding: coach's clarifying questions ──
     'A couple quick questions…': 'Pár rýchlych otázok…',
     'Your coach is checking what else it needs to nail your loads.': 'Tvoj kouč zisťuje, čo ešte potrebuje, aby presne nastavil záťaže.',

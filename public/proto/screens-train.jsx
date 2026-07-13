@@ -1244,6 +1244,62 @@ function ChatBubble({ m, onCard, highlight }) {
           {m.cards.map((c, i) => <ChatCard key={i} card={c} onClick={() => onCard(c)}/>)}
         </div>
       )}
+      {!isMe && m.proposals && m.proposals.length > 0 && (
+        <div style={{ marginTop: (m.text || hasCards) ? 8 : 0, maxWidth: '92%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {m.proposals.map((p) => <ProposalCard key={p.id} p={p}/>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// A staged coach change awaiting the user's call — Apply (mutate the plan) or
+// Dismiss. Propose→confirm applies to EVERY coach edit, today or block-wide.
+const PROPOSAL_ICONS = {
+  set_load: 'sliders', swap: 'sliders', add_set: 'plus',
+  reorder: 'sliders', scale_load: 'trend', regenerate_session: 'sparkles', edit: 'edit',
+};
+function ProposalCard({ p }) {
+  const [status, setStatus] = React.useState(p.status || 'proposed');
+  const [busy, setBusy] = React.useState(false);
+  const icon = PROPOSAL_ICONS[p.operation] || 'sparkles';
+  const done = status === 'applied';
+
+  const act = (fn, next) => {
+    if (busy || !window.__strideCoach || !fn) return;
+    setBusy(true);
+    Promise.resolve(fn(p.id))
+      .then(() => { setStatus(next); setBusy(false); })
+      .catch(() => setBusy(false));
+  };
+  if (status === 'dismissed') return null;
+
+  return (
+    <div style={{ width: '100%', background: TX.surface, border: `1px solid ${done ? TX.accent : TX.line}`, borderRadius: 16, padding: 13 }}>
+      <div style={{ display: 'flex', gap: 11 }}>
+        <div style={{ width: 34, height: 34, borderRadius: 11, background: done ? TX.accent + '18' : TX.lineSoft, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+          <StrideIcon name={done ? 'check' : icon} size={16} color={done ? TX.accent : TX.ink2}/>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: 'Inter', fontSize: 9.5, fontWeight: 800, color: done ? TX.accent : TX.ink3, textTransform: 'uppercase', letterSpacing: 0.7 }}>
+            {done ? window.t('Applied') : window.t('Proposed change')}{p.target ? ' · ' + p.target : ''}
+          </div>
+          <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13.5, color: TX.ink, lineHeight: 1.25, marginTop: 3 }}>{p.text}</div>
+          {p.why && <div style={{ fontFamily: 'Inter', fontSize: 11.5, color: TX.ink3, marginTop: 4, lineHeight: 1.4 }}>{p.why}</div>}
+        </div>
+      </div>
+      {!done && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 11 }}>
+          <button onClick={() => act(window.__strideCoach && window.__strideCoach.dismissProposal, 'dismissed')} disabled={busy} style={{
+            flex: 'none', padding: '8px 16px', borderRadius: 11, border: `1px solid ${TX.line}`, background: TX.surface, color: TX.ink2,
+            fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12.5, cursor: 'pointer',
+          }}>{window.t('Dismiss')}</button>
+          <button onClick={() => act(window.__strideCoach && window.__strideCoach.applyProposal, 'applied')} disabled={busy} style={{
+            flex: 1, padding: '8px 16px', borderRadius: 11, border: 'none', background: TX.ink, color: '#fff',
+            fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12.5, cursor: 'pointer', opacity: busy ? 0.6 : 1,
+          }}>{busy ? window.t('Applying…') : window.t('Apply')}</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1377,5 +1433,5 @@ function personaReply(key, t) {
 }
 
 Object.assign(window, {
-  GenerateScreen, ActiveConfigScreen, ActiveWorkoutScreen, SummaryScreen, ChatScreen,
+  GenerateScreen, ActiveConfigScreen, ActiveWorkoutScreen, SummaryScreen, ChatScreen, ProposalCard, ChatBubble,
 });

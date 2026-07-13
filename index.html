@@ -59,6 +59,15 @@
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 
+  <!-- On the native (Capacitor) build, localhost is unreachable — point the app
+       at the deployed Stride API. Web dev keeps bridge.js's localhost default. -->
+  <script>
+    if (location.protocol === 'capacitor:' || location.protocol === 'ionic:' ||
+        (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) {
+      window.STRIDE_API_BASE = 'https://dashboard.cecko.dev/api/stride';
+    }
+  </script>
+
   <!-- Boots the prototype 1:1 with live API data + login gate -->
   <script src="/bridge.js"></script>
 </body>

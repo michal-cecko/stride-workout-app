@@ -16,6 +16,14 @@ function StrideApp({ frame }) {
     window.__strideNeedsOnboarding ? 'onboarding' : (t.tweaks.initialScreen || 'home')
   );
   const [activeMode, setActiveMode] = React.useState('timer');
+
+  // Lets the bridge force a re-render after live data changes (e.g. a coach
+  // proposal is applied) so screens pick up the refreshed STRIDE_* globals.
+  const [, setDataVersion] = React.useState(0);
+  React.useEffect(() => {
+    window.__strideRerender = () => setDataVersion(v => v + 1);
+    return () => { delete window.__strideRerender; };
+  }, []);
   const [persona, setPersona] = React.useState({
     key: t.tweaks.personaKey,
     ...window.STRIDE_AI_PERSONAS[t.tweaks.personaKey],
@@ -35,15 +43,17 @@ function StrideApp({ frame }) {
 
   // Map "profile" tab to actual profile-stack root
   const activeTab = ['home','plan','library','chat','profile'].includes(screen) ? screen
+    : screen === 'block-detail' ? 'plan'
     : screen === 'weight' || screen === 'goals' || screen === 'injuries' || screen === 'injury-detail' || screen === 'ai-coach' || screen === 'spots' ? 'profile'
     : null;
 
-  const showBottomNav = ['home','plan','library','chat','profile','weight','goals','injuries','injury-detail','ai-coach','spots'].includes(screen);
+  const showBottomNav = ['home','plan','library','chat','profile','weight','goals','injuries','injury-detail','ai-coach','spots','block-detail'].includes(screen);
 
   let content = null;
   switch (screen) {
     case 'home':      content = <HomeScreen go={go} persona={persona}/>; break;
     case 'plan':      content = <PlanScreen go={go} persona={persona}/>; break;
+    case 'block-detail': content = <BlockDetailScreen go={go} persona={persona}/>; break;
     case 'library':   content = <LibraryScreen go={go}/>; break;
     case 'chat':      content = <ChatScreen go={go} persona={persona}/>; break;
     case 'profile':   content = <ProfileScreen go={go} persona={persona} setPersona={handlePersona}/>; break;
