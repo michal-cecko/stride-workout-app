@@ -177,23 +177,20 @@ function OnboardingScreen({ go }) {
 
   // "Generate this plan" → first ask the coach for a couple of clarifying questions
   // (missing PRs the goals imply + general context). Empty/failed → straight to build.
+  // The pre-generation free-text is passed to /plan/generate as `note` (stored in
+  // the plan's brief + used as context) rather than permanently editing profile
+  // notes. A ref so doGenerate always reads the latest synchronously.
+  const genNoteRef = React.useRef('');
   const startQuestions = (extra) => {
     if (!picked) return;
+    genNoteRef.current = (extra || '').trim();
     setPhase('loadingQuestions');
-    // Fold any last-minute free-text context into the coach notes first, so the
-    // generator (which reads profile notes) picks it up. Wait for the patch so
-    // generation never races ahead of it.
-    const patch = (extra && extra.trim())
-      ? Promise.resolve(window.__stridePatchProfile && window.__stridePatchProfile({ notes: [notes, extra.trim()].filter(Boolean).join('\n\n') }))
-      : Promise.resolve();
-    patch.finally(() => {
-      window.__stridePlanQuestions(picked)
-        .then(qs => {
-          if (qs && qs.length) { setQuestions(qs); setPhase('questions'); }
-          else doGenerate();
-        })
-        .catch(() => doGenerate());
-    });
+    window.__stridePlanQuestions(picked)
+      .then(qs => {
+        if (qs && qs.length) { setQuestions(qs); setPhase('questions'); }
+        else doGenerate();
+      })
+      .catch(() => doGenerate());
   };
 
   // Persist any answers (PRs + facts), then build the plan. Answers are optional —
@@ -201,7 +198,7 @@ function OnboardingScreen({ go }) {
   const doGenerate = (answers) => {
     if (!picked) return;
     setPhase('generating');
-    const build = () => window.__stridePlanGenerate(picked, startDate)
+    const build = () => window.__stridePlanGenerate(picked, startDate, genNoteRef.current)
       .then((res) => {
         try {
           localStorage.setItem('stride_just_onboarded', '1');

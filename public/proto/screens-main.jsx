@@ -1758,6 +1758,30 @@ function BlockDetailBody({ block, trainer, onOpenSession, onEditCoach }) {
         {b.stats.map((s, i) => <BigStat key={i} label={s.label} value={s.value}/>)}
       </div>
 
+      {/* What you asked for — the saved brief this plan was generated from */}
+      {b.brief && (
+        <div style={{ marginTop: 20 }}>
+          <SectionHeader title="What you asked for"/>
+          <div style={{ background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 16, padding: 14, marginTop: 8 }}>
+            <div style={{ fontFamily: 'Inter', fontSize: 12.5, fontWeight: 600, color: TT.ink2 }}>
+              {[b.brief.option && b.brief.option.split, (b.brief.option && b.brief.option.days_per_week) ? window.t('{d}× / week', { d: b.brief.option.days_per_week }) : null, (b.brief.option && b.brief.option.weeks) ? window.t('{n} weeks', { n: b.brief.option.weeks }) : null].filter(Boolean).join(' · ')}
+            </div>
+            {b.brief.goals && b.brief.goals.length > 0 && (
+              <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {b.brief.goals.map((g, i) => <Chip key={i} bg={TT.lineSoft}>{g}</Chip>)}
+              </div>
+            )}
+            {b.brief.note && (
+              <div style={{ marginTop: 10, fontFamily: 'Inter', fontSize: 12.5, color: TT.ink2, fontStyle: 'italic', lineHeight: 1.5 }}>“{b.brief.note}”</div>
+            )}
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: 'Inter', fontSize: 11, color: TT.ink3 }}>
+              <span>{b.createdOn}</span>
+              {b.brief.cost_eur != null && <span>{window.t('Generated for')} €{Number(b.brief.cost_eur).toFixed(4)}</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sessions */}
       <div style={{ marginTop: 20 }}>
         <SectionHeader title="Sessions" right={<Chip bg={TT.lineSoft}>{b.sessions.length}</Chip>}/>
@@ -2056,6 +2080,12 @@ function ProfileScreen({ go, persona, setPersona }) {
   const prefs = window.useStridePrefs();
   const [spots] = window.useStrideSpots();
   const defaultSpot = spots.find((s) => s.isDefault) || spots[0];
+  // Training preferences (setup) — surfaced + editable, persisted to the server.
+  const setup = window.STRIDE_SETUP || {};
+  const [setupOpen, setSetupOpen] = React.useState(false);
+  const saveSetup = (patch) => Promise.resolve(window.__stridePatchProfile && window.__stridePatchProfile(patch))
+    .then(() => { if (window.__strideRefresh) window.__strideRefresh(); setSetupOpen(false); });
+  const setupCount = (setup.trainingStyle || []).length;
   const [notesOpen, setNotesOpen] = React.useState(() => {
     if (window.__strideOpenNotes) { window.__strideOpenNotes = false; return true; }
     return false;
@@ -2121,6 +2151,11 @@ function ProfileScreen({ go, persona, setPersona }) {
 
         {/* Quick links */}
         <div style={{ marginTop: 22 }}>
+          <SectionHeader title="Setup"/>
+          <div style={{ marginTop: 10, marginBottom: 18, background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 18, overflow: 'hidden' }}>
+            <Row icon="sliders" label={window.t('Training preferences')} sub={setupCount ? window.t('{n} styles', { n: setupCount }) + (setup.daysPerWeek ? ' · ' + window.t('{d}× / week', { d: setup.daysPerWeek }) : '') : window.t('Styles, days, experience, notes')} onClick={() => setSetupOpen(true)}/>
+          </div>
+
           <SectionHeader title="Tracking"/>
           <div style={{ marginTop: 10, background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 18, overflow: 'hidden' }}>
             <Row icon="scale" label="Weight" sub={u.weightKg ? `${u.weightKg} kg` : window.t('Log your weight')} onClick={() => go('weight')}/>
@@ -2197,6 +2232,12 @@ function ProfileScreen({ go, persona, setPersona }) {
         </Sheet>
       )}
 
+      {setupOpen && (
+        <Sheet title={window.t('Training preferences')} onClose={() => setSetupOpen(false)}>
+          <SetupBody setup={setup} onSave={saveSetup} onClose={() => setSetupOpen(false)}/>
+        </Sheet>
+      )}
+
       {prsOpen && (
         <Sheet title="Personal records" onClose={() => { setPrsOpen(false); setPrAdding(false); }}>
           {prAdding ? (
@@ -2228,6 +2269,60 @@ function ProfileScreen({ go, persona, setPersona }) {
         </Sheet>
       )}
     </Screen>
+  );
+}
+
+// Edit the training preferences captured at onboarding — persists to the server.
+function SetupBody({ setup, onSave, onClose }) {
+  const STYLES = [
+    { key: 'heavy', label: 'Heavy weights' }, { key: 'hypertrophy', label: 'Muscle building' },
+    { key: 'calisthenics', label: 'Calisthenics' }, { key: 'street', label: 'Street lifting' },
+    { key: 'sprints', label: 'Sprints' }, { key: 'running', label: 'Running' },
+    { key: 'hiit', label: 'HIIT' }, { key: 'conditioning', label: 'Conditioning' },
+    { key: 'mobility', label: 'Mobility' }, { key: 'flexibility', label: 'Flexibility' },
+  ];
+  const EXP = [{ y: 0, label: 'Just starting' }, { y: 2, label: '1–3 yr' }, { y: 4, label: '3–5 yr' }, { y: 7, label: '5+ yr' }];
+  const DAYS = [2, 3, 4, 5, 6];
+  const [styles, setStyles] = React.useState(setup.trainingStyle || []);
+  const [days, setDays] = React.useState(setup.daysPerWeek != null ? setup.daysPerWeek : null);
+  const [years, setYears] = React.useState(setup.yearsTraining != null ? setup.yearsTraining : null);
+  const [bio, setBio] = React.useState(setup.bio || '');
+  const [notes, setNotes] = React.useState(setup.notes || '');
+  const [saving, setSaving] = React.useState(false);
+  const toggle = (k) => setStyles((s) => s.includes(k) ? s.filter((x) => x !== k) : [...s, k]);
+  const save = () => {
+    setSaving(true);
+    Promise.resolve(onSave({ training_style: styles, days_per_week: days, years_training: years, bio: bio.trim(), notes: notes.trim() }))
+      .catch(() => setSaving(false));
+  };
+  const lbl = { fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 10.5, color: TT.ink3, textTransform: 'uppercase', letterSpacing: 1, margin: '16px 0 8px' };
+  const chip = (active) => ({ padding: '8px 12px', borderRadius: 999, cursor: 'pointer', border: `1.5px solid ${active ? TT.ink : TT.line}`, background: active ? TT.ink : TT.surface, color: active ? '#fff' : TT.ink2, fontFamily: 'Inter', fontWeight: 700, fontSize: 12.5 });
+  const ta = { width: '100%', boxSizing: 'border-box', resize: 'vertical', marginTop: 2, padding: '12px 13px', borderRadius: 12, border: `1px solid ${TT.line}`, background: TT.surface, color: TT.ink, fontFamily: 'Inter', fontSize: 13.5, lineHeight: 1.5, outline: 'none' };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <div style={{ ...lbl, marginTop: 4 }}>{window.t('What you like to train')}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+        {STYLES.map((s) => <button key={s.key} onClick={() => toggle(s.key)} style={chip(styles.includes(s.key))}>{s.label}</button>)}
+      </div>
+      <div style={lbl}>{window.t('Days per week')}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+        <button onClick={() => setDays(null)} style={chip(days == null)}>{window.t('Any')}</button>
+        {DAYS.map((d) => <button key={d} onClick={() => setDays(d)} style={chip(days === d)}>{d}</button>)}
+      </div>
+      <div style={lbl}>{window.t('Training experience')}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+        {EXP.map((e) => <button key={e.y} onClick={() => setYears(e.y)} style={chip(years === e.y)}>{e.label}</button>)}
+      </div>
+      <div style={lbl}>{window.t('About you')}</div>
+      <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={2} placeholder="e.g. Desk job, train before work." style={ta}/>
+      <div style={lbl}>{window.t('Notes for your coach')}</div>
+      <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="e.g. Keep sessions under 1:30h." style={ta}/>
+      <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
+        <StrideButton variant="ghost" style={{ flex: 1 }} onClick={onClose}>{window.t('Cancel')}</StrideButton>
+        <StrideButton variant="volt" icon="check" style={{ flex: 1.4, opacity: saving ? 0.6 : 1 }} onClick={save}>{saving ? window.t('Saving…') : window.t('Save')}</StrideButton>
+      </div>
+      <div style={{ height: 8 }}/>
+    </div>
   );
 }
 

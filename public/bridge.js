@@ -92,8 +92,8 @@
     return api('/plan/recommend', { method: 'POST', body: JSON.stringify({ note: note || null, base: base || null }) })
       .then(function (r) { return (r && r.options) || []; });
   };
-  window.__stridePlanGenerate = function (option, startDate) {
-    return api('/plan/generate', { method: 'POST', body: JSON.stringify({ option: option, start_date: startDate || null }) });
+  window.__stridePlanGenerate = function (option, startDate, note) {
+    return api('/plan/generate', { method: 'POST', body: JSON.stringify({ option: option, start_date: startDate || null, note: note || null }) });
   };
   // Optional clarifying questions the coach asks before generating (missing PRs
   // the goals imply + general context). Returns [] on any failure so the step is
@@ -230,6 +230,15 @@
       // Personal records (type-aware bests), surfaced for the Library + profile.
       window.STRIDE_PRS = prof.personal_records || [];
 
+      // Setup / training preferences — surfaced so the You tab can show & edit them.
+      window.STRIDE_SETUP = {
+        trainingStyle: prof.training_style || [],
+        daysPerWeek: (prof.days_per_week != null ? prof.days_per_week : null),
+        yearsTraining: (prof.years_training != null ? prof.years_training : null),
+        bio: prof.bio || '',
+        notes: prof.notes || '',
+      };
+
       var u = me.user || {};
       var first = u.name ? u.name.split(' ')[0] : 'Athlete';
       var STRIDE_USER = {
@@ -281,6 +290,9 @@
             id: 'blk-' + b.id, rawId: b.id, name: b.name, phase: b.phase, status: b.status, weeks: b.weeks, weekOf: b.week_of,
             dates: fmtDate(b.starts_on) + ' – ' + fmtDate(b.ends_on), summary: b.summary || '', accent: b.accent || '#FF4D1F',
             stats: b.stats || [],
+            createdAt: b.created_at || null,
+            brief: b.brief || null, // what was asked for when this plan was generated
+            createdOn: b.created_at ? fmtDate(b.created_at) : '',
             sessions: (b.sessions || []).map(function (s) {
               return { id: s.id, day: s.day, date: s.date, kind: s.kind, title: s.title, status: s.status, volume: s.volume, duration: s.duration };
             }),
