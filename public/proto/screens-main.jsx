@@ -2080,18 +2080,38 @@ function WeightScreen({ go }) {
 
 // Reusable bottom sheet
 function Sheet({ title, children, onClose }) {
+  const overlayRef = React.useRef(null);
+  const panelRef = React.useRef(null);
+  // Scroll containment: the page behind must NOT scroll while the sheet is open.
+  // Touches on the dark backdrop, or overscroll past the panel's own bounds, would
+  // otherwise chain through to the screen underneath (looks like the sheet floats
+  // over scrolling content). `overscroll-behavior: contain` stops the in-panel
+  // chaining; a non-passive touchmove guard blocks any scroll that starts on the
+  // backdrop (React's onTouchMove is passive, so preventDefault there is a no-op).
+  React.useEffect(() => {
+    const overlay = overlayRef.current;
+    if (!overlay) return undefined;
+    const block = (e) => {
+      const panel = panelRef.current;
+      if (!panel || !panel.contains(e.target)) e.preventDefault();
+    };
+    overlay.addEventListener('touchmove', block, { passive: false });
+    return () => overlay.removeEventListener('touchmove', block);
+  }, []);
   return (
-    <div style={{
+    <div ref={overlayRef} style={{
       position: 'absolute', inset: 0, zIndex: 50,
       background: 'rgba(10,10,10,0.45)',
       display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+      touchAction: 'none', // no scroll gestures on the backdrop
     }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{
+      <div ref={panelRef} onClick={e => e.stopPropagation()} style={{
         background: TT.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28,
         // Scroll INSIDE the sheet so its background always covers the content, and
         // clear the home-indicator with the real safe-area inset on native.
         padding: window.STRIDE_NATIVE ? '14px 22px calc(28px + env(safe-area-inset-bottom))' : '14px 22px 32px',
         maxHeight: '85%', overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+        overscrollBehavior: 'contain', touchAction: 'pan-y', // scroll stays inside the panel
       }}>
         <div style={{ width: 38, height: 4, borderRadius: 4, background: TT.line, margin: '0 auto 12px' }}/>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
