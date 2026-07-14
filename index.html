@@ -17,7 +17,12 @@
       font-family: 'Inter', -apple-system, system-ui, sans-serif;
       color: #0a0a0a;
       -webkit-font-smoothing: antialiased;
+      /* Hard lock against horizontal drag/overflow on the native webview — no
+         screen or generated content can pan the whole app sideways. */
+      width: 100%; max-width: 100%; overflow-x: hidden;
+      overscroll-behavior-x: none;
     }
+    #root { overflow-x: hidden; max-width: 100%; }
     input, textarea, button { font-family: inherit; }
     .screen-scroll::-webkit-scrollbar { display: none; }
     @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.08); opacity: .9; } }

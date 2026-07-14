@@ -51,6 +51,7 @@ function OnboardingScreen({ go }) {
   // athlete who taps "Build a plan" from home jumps straight to the start-date +
   // plan steps — their profile is kept, never re-collected.
   const alreadyOnboarded = !window.__strideNeedsOnboarding;
+  const { lang } = window.useStrideI18n ? window.useStrideI18n() : { lang: 'en' };
   const [step, setStep] = React.useState(alreadyOnboarded ? 8 : 0);
 
   // collected data
@@ -234,14 +235,15 @@ function OnboardingScreen({ go }) {
 
       <div style={{ padding: '20px 20px 40px' }}>
         {step === 0 && (
-          <StepWrap title="How long have you trained?" sub="Sets the starting point for your plan.">
-            <Seg value={expIdx} options={ONB_EXPERIENCE.map((_, i) => i)} labels={ONB_EXPERIENCE.map(e => e.label)} onChange={setExpIdx}/>
+          <StepWrap title={window.t('Choose your language')} sub={window.t('You can change this anytime in settings.')}>
+            <Seg value={lang} options={['en', 'sk']} labels={['English', 'Slovenčina']} onChange={(v) => window.setStrideLanguage && window.setStrideLanguage(v)}/>
           </StepWrap>
         )}
 
         {step === 1 && (
           <StepWrap title="The basics" sub="Gender and birth year shape your plan and loads — height and weight are optional.">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <Field label={window.t('Training experience')}><Seg value={expIdx} options={ONB_EXPERIENCE.map((_, i) => i)} labels={ONB_EXPERIENCE.map(e => e.label)} onChange={setExpIdx}/></Field>
               <Field label="Gender" hint="Required"><Seg value={gender} options={['male', 'female']} labels={['Male', 'Female']} onChange={setGender}/></Field>
               <Field label="Year of birth" hint="Required"><input type="number" inputMode="numeric" value={birthYear} onChange={e => setBirthYear(e.target.value)} placeholder="e.g. 1995" style={ONB_INPUT}/></Field>
               <Field label="Height (cm)" hint="Optional"><input type="number" inputMode="numeric" value={height} onChange={e => setHeight(e.target.value)} placeholder="e.g. 180" style={ONB_INPUT}/></Field>
