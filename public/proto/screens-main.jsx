@@ -906,6 +906,20 @@ const EXERCISE_POOL = {
 
 const RANDOM_OPT = '__random__';
 
+// Map a live session exercise ({name, sets:[{kind,reps,kg}]}) to the compact
+// display shape the list expects ({name, sets:<count>, reps, load}).
+function liveExToDisplay(ex) {
+  const sets = ex.sets || [];
+  const work = sets.filter(st => (st.kind || '').toLowerCase() !== 'warm-up');
+  const rep = work[0] || sets[0] || {};
+  return {
+    name: ex.name,
+    sets: work.length || sets.length || (typeof ex.sets === 'number' ? ex.sets : 0),
+    reps: rep.reps != null ? rep.reps : (ex.reps != null ? ex.reps : ''),
+    load: rep.kg ? `${rep.kg} kg` : (ex.load || '—'),
+  };
+}
+
 function SessionDetail({ session: s, go, persona, onClose, startEditing = false }) {
   const [mode, setMode] = React.useState(startEditing ? 'edit' : 'view');
   const done = s.status === 'done';
@@ -928,7 +942,23 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
     return <SessionChat session={s} persona={persona} onBack={() => setMode('view')}/>;
   }
 
-  const exercises = SESSION_SAMPLES[s.kind] || [];
+  // Show THIS session's REAL exercises. If the summary already carries them
+  // (today's workout), map them; otherwise load /sessions/{id}. Only fall back to
+  // the kind sample if there's genuinely nothing to load.
+  const [liveEx, setLiveEx] = React.useState(() =>
+    (s.exercises && s.exercises.length) ? s.exercises.map(liveExToDisplay) : null
+  );
+  React.useEffect(() => {
+    if ((!s.exercises || !s.exercises.length) && s.id && window.__strideLoadSession) {
+      window.__strideLoadSession(s.id)
+        .then(() => {
+          const w = window.STRIDE_ACTIVE_WORKOUT;
+          if (w && w.exercises && w.exercises.length) setLiveEx(w.exercises.map(liveExToDisplay));
+        })
+        .catch(() => {});
+    }
+  }, [s.id]);
+  const exercises = liveEx || SESSION_SAMPLES[s.kind] || [];
 
   return (
     <div style={{ padding: '4px 0 0' }}>
