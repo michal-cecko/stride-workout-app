@@ -51,6 +51,17 @@ function HomeScreen({ go, persona }) {
   };
   const dateStr = today.toLocaleDateString(window.strideLocale(), { weekday: 'long', month: 'short', day: 'numeric' });
 
+  // "Starter plan" notice: the backend set ai_degraded because the AI couldn't
+  // fully build the last plan, so it's the deterministic builder. Shown once,
+  // dismissible — so a fallback is never silently passed off as AI-tailored.
+  const [planDegraded, setPlanDegraded] = React.useState(() => {
+    try { return localStorage.getItem('stride_plan_degraded') === '1'; } catch (e) { return false; }
+  });
+  const dismissPlanDegraded = () => {
+    try { localStorage.removeItem('stride_plan_degraded'); } catch (e) {}
+    setPlanDegraded(false);
+  };
+
   return (
     <Screen>
       {/* Top bar */}
@@ -63,6 +74,20 @@ function HomeScreen({ go, persona }) {
           <AILogButton scopes={['today']} scopeLabel="today's training" persona={persona}/>
         </div>
       </div>
+
+      {/* Starter-plan notice (deterministic fallback, not silently AI-tailored) */}
+      {planDegraded && (
+        <div style={{ padding: '4px 20px 0' }}>
+          <div style={{ background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 16, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <div style={{ fontSize: 18, lineHeight: '20px' }}>💪</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: 'Inter', fontWeight: 700, fontSize: 13, color: TT.ink }}>Starter plan ready</div>
+              <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, marginTop: 2, lineHeight: 1.45 }}>The AI coach was busy, so we built you a solid starter plan. Regenerate anytime for one fully tailored to you.</div>
+            </div>
+            <button onClick={dismissPlanDegraded} aria-label="Dismiss" style={{ border: 'none', background: 'transparent', color: TT.ink3, fontSize: 20, lineHeight: '18px', cursor: 'pointer', padding: 0 }}>×</button>
+          </div>
+        </div>
+      )}
 
       {/* Hero: Today's workout */}
       <div style={{ padding: '10px 20px 0' }}>

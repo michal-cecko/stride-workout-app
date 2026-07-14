@@ -179,7 +179,15 @@ function OnboardingScreen({ go }) {
     if (!picked) return;
     setPhase('generating');
     const build = () => window.__stridePlanGenerate(picked, startDate)
-      .then(() => { try { localStorage.setItem('stride_just_onboarded', '1'); } catch (e) {} location.reload(); })
+      .then((res) => {
+        try {
+          localStorage.setItem('stride_just_onboarded', '1');
+          // The AI couldn't fully build the plan → a deterministic starter. Flag
+          // it so Home can tell the user (survives the reload below).
+          if (res && res.ai_degraded) localStorage.setItem('stride_plan_degraded', '1');
+        } catch (e) {}
+        location.reload();
+      })
       .catch(() => setPhase('error'));
     if (answers && answers.length) window.__stridePlanAnswers(answers).then(build).catch(build);
     else build();
