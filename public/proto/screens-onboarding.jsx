@@ -177,15 +177,23 @@ function OnboardingScreen({ go }) {
 
   // "Generate this plan" → first ask the coach for a couple of clarifying questions
   // (missing PRs the goals imply + general context). Empty/failed → straight to build.
-  const startQuestions = () => {
+  const startQuestions = (extra) => {
     if (!picked) return;
     setPhase('loadingQuestions');
-    window.__stridePlanQuestions(picked)
-      .then(qs => {
-        if (qs && qs.length) { setQuestions(qs); setPhase('questions'); }
-        else doGenerate();
-      })
-      .catch(() => doGenerate());
+    // Fold any last-minute free-text context into the coach notes first, so the
+    // generator (which reads profile notes) picks it up. Wait for the patch so
+    // generation never races ahead of it.
+    const patch = (extra && extra.trim())
+      ? Promise.resolve(window.__stridePatchProfile && window.__stridePatchProfile({ notes: [notes, extra.trim()].filter(Boolean).join('\n\n') }))
+      : Promise.resolve();
+    patch.finally(() => {
+      window.__stridePlanQuestions(picked)
+        .then(qs => {
+          if (qs && qs.length) { setQuestions(qs); setPhase('questions'); }
+          else doGenerate();
+        })
+        .catch(() => doGenerate());
+    });
   };
 
   // Persist any answers (PRs + facts), then build the plan. Answers are optional —
@@ -337,7 +345,8 @@ function OnboardingScreen({ go }) {
             <div style={{ marginTop: 14 }}>
               <Field label="Or pick a date">
                 <input type="date" value={startDate} min={onbISO(new Date())}
-                  onChange={e => { setStartDate(e.target.value); setStartKey('custom'); }} style={ONB_INPUT}/>
+                  onChange={e => { setStartDate(e.target.value); setStartKey('custom'); }}
+                  style={{ ...ONB_INPUT, WebkitAppearance: 'none', minWidth: 0 }}/>
               </Field>
             </div>
           </StepWrap>
@@ -371,6 +380,8 @@ function OnboardingScreen({ go }) {
 function PlanStep({ phase, options, picked, setPicked, questions, onGenerate, onAnswers, onRetry, onAdjust }) {
   const [adjusting, setAdjusting] = React.useState(false);
   const [note, setNote] = React.useState('');
+  // Free-text context added to the coach right before generation.
+  const [extra, setExtra] = React.useState('');
 
   if (phase === 'saving') {
     return <OnbBusy title="Saving your setup…" sub="Getting your profile ready."/>;
@@ -418,8 +429,15 @@ function PlanStep({ phase, options, picked, setPicked, questions, onGenerate, on
         })}
       </div>
 
-      <div style={{ marginTop: 18 }}>
-        <StrideButton variant="accent" block size="lg" icon="sparkles" onClick={onGenerate} style={{ opacity: picked ? 1 : 0.5 }}>Generate this plan</StrideButton>
+      <div style={{ marginTop: 16 }}>
+        <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 10.5, color: TO.ink3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{window.t('Anything to add before we build it?')}</div>
+        <textarea value={extra} onChange={e => setExtra(e.target.value)} rows={3}
+          placeholder={window.t('e.g. Calisthenics-skill focused; weighted pull-ups/dips for strength; accessories can be gym machines.')}
+          style={{ ...ONB_INPUT, resize: 'vertical', fontSize: 13.5 }}/>
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <StrideButton variant="accent" block size="lg" icon="sparkles" onClick={() => onGenerate(extra)} style={{ opacity: picked ? 1 : 0.5 }}>Generate this plan</StrideButton>
       </div>
 
       {/* Tweak the SELECTED plan: keep it as the base, apply a change on top. */}

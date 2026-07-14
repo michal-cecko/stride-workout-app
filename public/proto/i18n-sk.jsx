@@ -76,6 +76,8 @@ window.STRIDE_I18N = {
     'Choose your language': 'Vyber si jazyk',
     'You can change this anytime in settings.': 'Kedykoľvek to zmeníš v nastaveniach.',
     'Training experience': 'Skúsenosti s tréningom',
+    'Anything to add before we build it?': 'Chceš niečo doplniť pred vytvorením?',
+    'e.g. Calisthenics-skill focused; weighted pull-ups/dips for strength; accessories can be gym machines.': 'napr. Zameranie na cvičenie s vlastnou váhou (skills); záťažové zhyby/dipy na silu; doplnky môžu byť aj stroje v posilke.',
     'Workout spots': 'Tréningové miesta',
     'Spots': 'Miesta',
     'Add your training locations': 'Pridaj svoje tréningové miesta',
