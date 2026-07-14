@@ -98,8 +98,8 @@
   // Optional clarifying questions the coach asks before generating (missing PRs
   // the goals imply + general context). Returns [] on any failure so the step is
   // skippable and never blocks plan generation.
-  window.__stridePlanQuestions = function (option) {
-    return api('/plan/questions', { method: 'POST', body: JSON.stringify({ option: option }) })
+  window.__stridePlanQuestions = function (option, answered) {
+    return api('/plan/questions', { method: 'POST', body: JSON.stringify({ option: option, answered: answered || [] }) })
       .then(function (r) { return (r && r.questions) || []; })
       .catch(function () { return []; });
   };

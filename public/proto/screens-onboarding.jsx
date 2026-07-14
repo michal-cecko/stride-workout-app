@@ -184,24 +184,45 @@ function OnboardingScreen({ go }) {
   // the plan's brief + used as context) rather than permanently editing profile
   // notes. A ref so doGenerate always reads the latest synchronously.
   const genNoteRef = React.useRef('');
-  const startQuestions = (extra) => {
-    if (!picked) return;
-    genNoteRef.current = (extra || '').trim();
+  const roundRef = React.useRef(0);
+  const answeredRef = React.useRef([]); // labels already asked, so the coach never repeats
+  const MAX_QUESTION_ROUNDS = 3;
+
+  // Ask the coach whether it needs (more) clarifying questions. IT decides — an
+  // empty result means "I have enough, generate now". Loops up to a cap; the
+  // answered labels are passed so it never repeats and can stop whenever it likes.
+  const askRound = () => {
     setPhase('loadingQuestions');
-    window.__stridePlanQuestions(picked)
+    window.__stridePlanQuestions(picked, answeredRef.current)
       .then(qs => {
-        if (qs && qs.length) { setQuestions(qs); setPhase('questions'); }
+        if (qs && qs.length && roundRef.current < MAX_QUESTION_ROUNDS) { setQuestions(qs); setPhase('questions'); }
         else doGenerate();
       })
       .catch(() => doGenerate());
   };
 
-  // Persist any answers (PRs + facts), then build the plan. Answers are optional —
-  // skipping passes nothing and goes straight to generation.
-  const doGenerate = (answers) => {
+  const startQuestions = (extra) => {
+    if (!picked) return;
+    genNoteRef.current = (extra || '').trim();
+    roundRef.current = 0;
+    answeredRef.current = [];
+    askRound();
+  };
+
+  // A round was answered: remember what was asked (dedupe), persist the answers,
+  // then ask the coach whether it needs another round.
+  const submitAnswers = (answers) => {
+    answeredRef.current = answeredRef.current.concat((questions || []).map(q => q.label).filter(Boolean));
+    roundRef.current += 1;
+    const persist = (answers && answers.length) ? Promise.resolve(window.__stridePlanAnswers(answers)) : Promise.resolve();
+    persist.finally(askRound);
+  };
+
+  // Build the plan — answers were persisted per round; skipping jumps straight here.
+  const doGenerate = () => {
     if (!picked) return;
     setPhase('generating');
-    const build = () => window.__stridePlanGenerate(picked, startDate, genNoteRef.current)
+    window.__stridePlanGenerate(picked, startDate, genNoteRef.current)
       .then((res) => {
         try {
           localStorage.setItem('stride_just_onboarded', '1');
@@ -212,8 +233,6 @@ function OnboardingScreen({ go }) {
         location.reload();
       })
       .catch(() => setPhase('error'));
-    if (answers && answers.length) window.__stridePlanAnswers(answers).then(build).catch(build);
-    else build();
   };
 
   // Step 1 (basics) gates on the two required fields: gender + a plausible birth year.
@@ -353,7 +372,7 @@ function OnboardingScreen({ go }) {
         )}
 
         {step === last && (
-          <PlanStep phase={phase} options={options} picked={picked} setPicked={setPicked} questions={questions} onGenerate={startQuestions} onAnswers={doGenerate} onRetry={startRecommend} onAdjust={adjustPlan}/>
+          <PlanStep phase={phase} options={options} picked={picked} setPicked={setPicked} questions={questions} onGenerate={startQuestions} onAnswers={submitAnswers} onSkipQuestions={doGenerate} onRetry={startRecommend} onAdjust={adjustPlan}/>
         )}
       </div>
 
@@ -377,7 +396,7 @@ function OnboardingScreen({ go }) {
 }
 
 // Final step — recommend, pick, (clarify), generate.
-function PlanStep({ phase, options, picked, setPicked, questions, onGenerate, onAnswers, onRetry, onAdjust }) {
+function PlanStep({ phase, options, picked, setPicked, questions, onGenerate, onAnswers, onSkipQuestions, onRetry, onAdjust }) {
   const [adjusting, setAdjusting] = React.useState(false);
   const [note, setNote] = React.useState('');
   // Free-text context added to the coach right before generation.
@@ -393,7 +412,7 @@ function PlanStep({ phase, options, picked, setPicked, questions, onGenerate, on
     return <OnbBusy title="A couple quick questions…" sub="Your coach is checking what else it needs to nail your loads."/>;
   }
   if (phase === 'questions') {
-    return <QuestionsStep questions={questions} onSubmit={onAnswers} onSkip={() => onAnswers()}/>;
+    return <QuestionsStep questions={questions} onSubmit={onAnswers} onSkip={onSkipQuestions}/>;
   }
   if (phase === 'generating') {
     return <OnbBusy title="Building your plan…" sub="Laying out your first week of sessions."/>;
