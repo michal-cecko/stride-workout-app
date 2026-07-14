@@ -2175,6 +2175,17 @@ function ProfileScreen({ go, persona, setPersona }) {
             }}>
             {window.t('Log out')}
           </button>
+
+          {/* TEMP/TEST: reset the account to the empty setup state, then log out. */}
+          <button
+            onClick={() => { if (window.confirm(window.t('Reset app to setup? This erases all your data.'))) window.__strideResetApp && window.__strideResetApp(); }}
+            style={{
+              width: '100%', marginTop: 10, padding: '12px', borderRadius: 14,
+              border: `1px dashed ${TT.line}`, background: 'transparent', cursor: 'pointer',
+              fontFamily: 'Inter', fontWeight: 700, fontSize: 12.5, color: TT.ink3,
+            }}>
+            {window.t('Reset app (test)')}
+          </button>
         </div>
 
         <div style={{ height: 24 }}/>

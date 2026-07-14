@@ -59,6 +59,14 @@
     });
   };
 
+  // TEST: reset the account to a blank pre-onboarding state on the server, then
+  // log out — so the next sign-in starts the setup wizard from scratch.
+  window.__strideResetApp = function () {
+    return api('/profile/reset', { method: 'POST' })
+      .then(function () { return window.__strideLogout(); })
+      .catch(function (e) { console.error('Stride: reset failed.', e); alert('Reset failed — please try again.'); });
+  };
+
   // ---- onboarding wizard helpers --------------------------------------------
   // Persist the collected setup (profile + goals + injuries + spots), then drive
   // the two-step AI plan flow (recommend options → generate the chosen one).

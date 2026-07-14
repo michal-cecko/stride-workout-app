@@ -71,6 +71,8 @@ window.STRIDE_I18N = {
     'Goals': 'Ciele',
     'Log out': 'Odhlásiť sa',
     'Log out of Stride?': 'Odhlásiť sa zo Stride?',
+    'Reset app (test)': 'Resetovať app (test)',
+    'Reset app to setup? This erases all your data.': 'Resetovať app na nastavenie? Vymaže to všetky tvoje dáta.',
     'Choose your language': 'Vyber si jazyk',
     'You can change this anytime in settings.': 'Kedykoľvek to zmeníš v nastaveniach.',
     'Training experience': 'Skúsenosti s tréningom',
