@@ -46,6 +46,19 @@
       .catch(function (e) { console.error('Stride: profile update failed.', e); });
   };
 
+  // Sign out: revoke the token server-side (best-effort), clear local session +
+  // per-account UI flags, then reload back to the login gate.
+  window.__strideLogout = function () {
+    return api('/auth/logout', { method: 'POST' }).catch(function () {}).then(function () {
+      try {
+        ['stride_token', 'stride_lang', 'stride_just_onboarded', 'stride_plan_degraded', 'stride_today_done']
+          .forEach(function (k) { localStorage.removeItem(k); });
+      } catch (e) {}
+      token = null;
+      location.reload();
+    });
+  };
+
   // ---- onboarding wizard helpers --------------------------------------------
   // Persist the collected setup (profile + goals + injuries + spots), then drive
   // the two-step AI plan flow (recommend options → generate the chosen one).

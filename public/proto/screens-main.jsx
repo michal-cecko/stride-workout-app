@@ -2165,6 +2165,16 @@ function ProfileScreen({ go, persona, setPersona }) {
             <Row icon="heart" label="Health & Apple Watch" sub="Connected"/>
             <Row icon="info" label="About Stride"/>
           </div>
+
+          <button
+            onClick={() => { if (window.confirm(window.t('Log out of Stride?'))) window.__strideLogout && window.__strideLogout(); }}
+            style={{
+              width: '100%', marginTop: 18, padding: '14px', borderRadius: 14,
+              border: `1px solid ${TT.line}`, background: TT.surface, cursor: 'pointer',
+              fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 14, color: '#e11d48',
+            }}>
+            {window.t('Log out')}
+          </button>
         </div>
 
         <div style={{ height: 24 }}/>

@@ -69,6 +69,8 @@ window.STRIDE_I18N = {
     'Tracking': 'Sledovanie',
     'Weight': 'Hmotnosť',
     'Goals': 'Ciele',
+    'Log out': 'Odhlásiť sa',
+    'Log out of Stride?': 'Odhlásiť sa zo Stride?',
     'Workout spots': 'Tréningové miesta',
     'Spots': 'Miesta',
     'Add your training locations': 'Pridaj svoje tréningové miesta',
