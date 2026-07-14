@@ -55,21 +55,30 @@ function OnboardingScreen({ go }) {
 
   // collected data
   const [expIdx, setExpIdx] = React.useState(1);
-  const [gender, setGender] = React.useState(null);
-  const [birthYear, setBirthYear] = React.useState('');
-  const [height, setHeight] = React.useState('');
-  const [weight, setWeight] = React.useState('');
-  const [goalWeight, setGoalWeight] = React.useState('');
-  const [days, setDays] = React.useState(null); // null = "Any" (let the coach decide)
-  const [styles, setStyles] = React.useState([]);
+  // NOTE: pre-filled TEST defaults so plan generation can be tried quickly.
+  // Reset these to empty ('' / null / []) before any real launch.
+  const [gender, setGender] = React.useState('male');
+  const [birthYear, setBirthYear] = React.useState('2001');
+  const [height, setHeight] = React.useState('180');
+  const [weight, setWeight] = React.useState('90');
+  const [goalWeight, setGoalWeight] = React.useState('85');
+  const [days, setDays] = React.useState(6); // null = "Any" (let the coach decide)
+  const [styles, setStyles] = React.useState(['calisthenics', 'hypertrophy', 'conditioning', 'mobility', 'street']);
   const [customStyles, setCustomStyles] = React.useState([]);
-  const [goals, setGoals] = React.useState([]);
+  const [goals, setGoals] = React.useState([
+    'Front lever hold 10s clean',
+    '90 degree handstand pushups clean 5x',
+    'One arm pullup 3x each arm',
+    '150kg barbell squat',
+    '120kg weighted dip',
+    '80kg weighted pullup',
+  ]);
   const [injuries, setInjuries] = React.useState([]);
   const [spotName, setSpotName] = React.useState('');
   const [spotType, setSpotType] = React.useState('gym');
   const [spotEquip, setSpotEquip] = React.useState([]);
   const [bio, setBio] = React.useState('');
-  const [notes, setNotes] = React.useState('');
+  const [notes, setNotes] = React.useState('Office job, like to train rather everyday, not longer than 1:30h.');
   const [startKey, setStartKey] = React.useState('today');
   const [startDate, setStartDate] = React.useState(onbISO(new Date()));
   const [prs, setPrs] = React.useState([]);
