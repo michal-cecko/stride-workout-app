@@ -330,6 +330,7 @@
         id: e.id, name: e.name, diff: e.difficulty || '', equip: e.equipment || '',
         primary: (e.primary && e.primary[0]) || '', secondary: (e.secondary || []).join(' · '),
         metricType: e.metric_type || 'load',
+        video: e.video_url || '', description: e.description || '', source: e.source_url || '',
       });
     });
     return {

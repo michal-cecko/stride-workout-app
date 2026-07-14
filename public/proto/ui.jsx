@@ -58,6 +58,7 @@ function StrideIcon({ name, size = 22, color = 'currentColor', strokeWidth = 2, 
     pin: <><path {...p} d="M12 21s7-6.3 7-12a7 7 0 0 0-14 0c0 5.7 7 12 7 12Z"/><circle {...p} cx="12" cy="9" r="2.5"/></>,
     ruler: <><rect {...p} x="3" y="8" width="18" height="8" rx="2" transform="rotate(-45 12 12)"/><path {...p} d="M8.5 7.5l1.5 1.5M11 10l1.5 1.5M13.5 12.5l1.5 1.5"/></>,
     ban: <><circle {...p} cx="12" cy="12" r="9"/><path {...p} d="M5.6 5.6l12.8 12.8"/></>,
+    instagram: <><rect {...p} x="3" y="3" width="18" height="18" rx="5"/><circle {...p} cx="12" cy="12" r="4"/><circle {...f} cx="17" cy="7" r="1.2"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: 'block', flexShrink: 0, ...style }}>

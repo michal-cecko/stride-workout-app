@@ -1303,7 +1303,9 @@ function ExerciseSheet({ ex, onClose, isFav, isHidden, onToggleFav, onToggleHide
 
   // Derived rich content (placeholders, exercise-aware where possible)
   const primary = ex.primary;
-  const description = `${ex.name} is a ${ex.diff.toLowerCase()}-level ${primary.toLowerCase()} movement. Performed correctly it loads the working muscles through a full range while keeping the rest of the body braced and quiet. Build it slowly — the cleanest reps you can produce will always beat ego-loaded ones.`;
+  // Prefer a real catalog description (e.g. freestyle tricks carry their own); fall back to the generic template.
+  const description = ex.description
+    || `${ex.name} is a ${ex.diff.toLowerCase()}-level ${primary.toLowerCase()} movement. Performed correctly it loads the working muscles through a full range while keeping the rest of the body braced and quiet. Build it slowly — the cleanest reps you can produce will always beat ego-loaded ones.`;
   const setup = [
     `Set up with ${ex.equip.toLowerCase()}. Feet planted, weight balanced through the mid-foot.`,
     `Brace your core — think 360° of pressure, not just abs squeezed in.`,
@@ -1607,48 +1609,71 @@ function FormVideoOverlay({ ex, onClose }) {
         </div>
       </div>
 
-      {/* Video stage (placeholder) */}
-      <button onClick={() => setPlaying(p => !p)} style={{
-        flex: 1, border: 'none', cursor: 'pointer', position: 'relative', overflow: 'hidden',
-        background: `linear-gradient(135deg, ${TM.ink}, #1a1a1a)`,
-      }}>
-        <div style={{ position: 'absolute', right: -40, top: '40%', opacity: 0.12 }}>
-          <StrideIcon name="dumbbell" size={260} color={TM.volt}/>
+      {/* Real self-hosted clip when we have one; cosmetic placeholder otherwise. */}
+      {ex.video ? (
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#000' }}>
+          <video
+            src={ex.video}
+            controls autoPlay playsInline loop preload="auto"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
+          />
+          {ex.source && (
+            <a href={ex.source} target="_blank" rel="noreferrer" style={{
+              position: 'absolute', left: 14, bottom: 20, zIndex: 3, textDecoration: 'none',
+              fontFamily: 'Inter', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.85)',
+              background: 'rgba(0,0,0,0.45)', padding: '5px 10px', borderRadius: 999,
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            }}>
+              <StrideIcon name="instagram" size={13} color="rgba(255,255,255,0.85)"/>
+              @freestyle_tricklist
+            </a>
+          )}
         </div>
-        <div style={{
-          position: 'absolute', inset: 0,
-          backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.035) 0 8px, transparent 8px 18px)',
-        }}/>
-        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center' }}>
-          <div style={{
-            width: 76, height: 76, borderRadius: 38, margin: '0 auto',
-            background: 'rgba(0,0,0,0.4)', border: '1.5px solid rgba(255,255,255,0.5)',
-            display: 'grid', placeItems: 'center',
+      ) : (
+        <>
+          <button onClick={() => setPlaying(p => !p)} style={{
+            flex: 1, border: 'none', cursor: 'pointer', position: 'relative', overflow: 'hidden',
+            background: `linear-gradient(135deg, ${TM.ink}, #1a1a1a)`,
           }}>
-            <div style={{ marginLeft: playing ? 0 : 4 }}>
-              <StrideIcon name={playing ? 'pause' : 'play'} size={34} color="#fff"/>
+            <div style={{ position: 'absolute', right: -40, top: '40%', opacity: 0.12 }}>
+              <StrideIcon name="dumbbell" size={260} color={TM.volt}/>
+            </div>
+            <div style={{
+              position: 'absolute', inset: 0,
+              backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.035) 0 8px, transparent 8px 18px)',
+            }}/>
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center' }}>
+              <div style={{
+                width: 76, height: 76, borderRadius: 38, margin: '0 auto',
+                background: 'rgba(0,0,0,0.4)', border: '1.5px solid rgba(255,255,255,0.5)',
+                display: 'grid', placeItems: 'center',
+              }}>
+                <div style={{ marginLeft: playing ? 0 : 4 }}>
+                  <StrideIcon name={playing ? 'pause' : 'play'} size={34} color="#fff"/>
+                </div>
+              </div>
+              <div style={{ marginTop: 14, fontFamily: 'monospace', fontSize: 11, color: 'rgba(255,255,255,0.55)', letterSpacing: 0.5 }}>
+                [ form demo · {ex.name} ]
+              </div>
+            </div>
+          </button>
+
+          {/* Bottom scrubber (cosmetic) */}
+          <div style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 2,
+            padding: '20px 18px 34px',
+            background: 'linear-gradient(0deg, rgba(0,0,0,0.65), transparent)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'monospace', fontSize: 11, color: '#fff' }}>
+              <span>0:0{playing ? 7 : 0}</span>
+              <div style={{ flex: 1, height: 4, borderRadius: 4, background: 'rgba(255,255,255,0.22)', overflow: 'hidden' }}>
+                <div style={{ width: playing ? '32%' : '0%', height: '100%', background: TM.volt, transition: 'width 0.4s ease' }}/>
+              </div>
+              <span style={{ opacity: 0.6 }}>0:22</span>
             </div>
           </div>
-          <div style={{ marginTop: 14, fontFamily: 'monospace', fontSize: 11, color: 'rgba(255,255,255,0.55)', letterSpacing: 0.5 }}>
-            [ form demo · {ex.name} ]
-          </div>
-        </div>
-      </button>
-
-      {/* Bottom scrubber (cosmetic) */}
-      <div style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 2,
-        padding: '20px 18px 34px',
-        background: 'linear-gradient(0deg, rgba(0,0,0,0.65), transparent)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'monospace', fontSize: 11, color: '#fff' }}>
-          <span>0:0{playing ? 7 : 0}</span>
-          <div style={{ flex: 1, height: 4, borderRadius: 4, background: 'rgba(255,255,255,0.22)', overflow: 'hidden' }}>
-            <div style={{ width: playing ? '32%' : '0%', height: '100%', background: TM.volt, transition: 'width 0.4s ease' }}/>
-          </div>
-          <span style={{ opacity: 0.6 }}>0:22</span>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1657,6 +1682,7 @@ function categoryColor(id) {
   return ({
     strength: TM.accent,
     calisthenics: TM.blue,
+    'freestyle calisthenics': TM.volt,
     conditioning: TM.amber,
     cardio: TM.green,
     mobility: TM.ink3,
