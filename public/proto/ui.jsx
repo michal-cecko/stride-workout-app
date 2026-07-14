@@ -552,15 +552,31 @@ function PrField({ label, children, flex = 1 }) {
 }
 
 function PrNum({ value, onChange, placeholder, decimal }) {
+  // Keep the raw TEXT locally while editing. Parsing to a number on every
+  // keystroke drops intermediate states like "62." (trailing dot) and resets the
+  // input under the cursor — breaking decimals and kicking focus out. We resync
+  // from `value` only when it changes from OUTSIDE (e.g. a form reset), tracked
+  // via a ref of the last value we ourselves emitted.
+  const [text, setText] = React.useState(value != null && value !== '' ? String(value) : '');
+  const lastEmitted = React.useRef(value);
+  React.useEffect(() => {
+    if (value !== lastEmitted.current) {
+      lastEmitted.current = value;
+      setText(value != null && value !== '' ? String(value) : '');
+    }
+  }, [value]);
+  const handle = (e) => {
+    let raw = e.target.value;
+    raw = decimal ? raw.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1') : raw.replace(/[^0-9]/g, '');
+    setText(raw);
+    const n = (raw === '' || raw === '.') ? null : (decimal ? parseFloat(raw) : parseInt(raw, 10));
+    const val = (n == null || isNaN(n)) ? null : n;
+    lastEmitted.current = val;
+    onChange(val);
+  };
   return (
     <input type="text" inputMode={decimal ? 'decimal' : 'numeric'}
-      value={value != null && value !== '' ? value : ''} placeholder={placeholder || '0'}
-      onChange={(e) => {
-        const raw = e.target.value;
-        if (raw === '') return onChange(null);
-        const n = decimal ? parseFloat(raw) : parseInt(raw, 10);
-        onChange(isNaN(n) ? null : n);
-      }} style={PR_INPUT}/>
+      value={text} placeholder={placeholder || '0'} onChange={handle} style={PR_INPUT}/>
   );
 }
 
