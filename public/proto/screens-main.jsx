@@ -2058,7 +2058,10 @@ function Sheet({ title, children, onClose }) {
     }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{
         background: TT.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28,
-        padding: '14px 22px 32px', maxHeight: '80%',
+        // Scroll INSIDE the sheet so its background always covers the content, and
+        // clear the home-indicator with the real safe-area inset on native.
+        padding: window.STRIDE_NATIVE ? '14px 22px calc(28px + env(safe-area-inset-bottom))' : '14px 22px 32px',
+        maxHeight: '85%', overflowY: 'auto', WebkitOverflowScrolling: 'touch',
       }}>
         <div style={{ width: 38, height: 4, borderRadius: 4, background: TT.line, margin: '0 auto 12px' }}/>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>

@@ -132,6 +132,9 @@ function OnboardingScreen({ go }) {
       ...(days != null ? { days_per_week: days } : {}),
       ...(bio.trim() ? { bio: bio.trim() } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
+      // Persist the language chosen in the first setup step alongside the rest, so
+      // it definitely survives to Settings (belt-and-suspenders with setStrideLanguage).
+      language: lang,
       units: 'metric',
       onboarded: true,
     },
