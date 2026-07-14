@@ -81,7 +81,12 @@ function OnboardingScreen({ go }) {
   const [notes, setNotes] = React.useState('Office job, like to train rather everyday, not longer than 1:30h.');
   const [startKey, setStartKey] = React.useState('today');
   const [startDate, setStartDate] = React.useState(onbISO(new Date()));
-  const [prs, setPrs] = React.useState([]);
+  const [prs, setPrs] = React.useState([
+    { exercise_id: null, label: 'Front lever hold', metric_type: 'hold', metrics: { seconds: 5 }, achieved_on: null, form_quality: null },
+    { exercise_id: null, label: 'One-arm pull-up (left arm)', metric_type: 'reps', metrics: { reps: 1 }, achieved_on: null, form_quality: null },
+    { exercise_id: null, label: '90 degree handstand push-up', metric_type: 'reps', metrics: { reps: 1 }, achieved_on: null, form_quality: null },
+    { exercise_id: null, label: 'Barbell squat', metric_type: 'load', metrics: { weight: 140, reps: 2 }, achieved_on: null, form_quality: null },
+  ]);
   const [prAdding, setPrAdding] = React.useState(false);
 
   // plan phase (final step): 'idle' | 'recommending' | 'choose' | 'loadingQuestions'
