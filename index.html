@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Stride — workout app</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
   <!-- Self-hosted fonts (Archivo / Inter / JetBrains Mono, latin + latin-ext for
        EN+SK) so the app renders offline with no CDN round-trips. -->
@@ -70,9 +71,14 @@
        device frame — the real phone supplies the status bar / safe areas. The
        browser/editor prototype leaves STRIDE_NATIVE unset and keeps the frame. -->
   <script>
-    if (location.protocol === 'capacitor:' || location.protocol === 'ionic:' ||
-        (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) {
+    var strideIsCapacitor = location.protocol === 'capacitor:' || location.protocol === 'ionic:' ||
+      (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    // ?native=1 previews the native (frameless) layout in a browser against the
+    // local API — for testing exactly what the device renders.
+    if (strideIsCapacitor || /[?&]native=1/.test(location.search)) {
       window.STRIDE_NATIVE = true;
+    }
+    if (strideIsCapacitor) {
       window.STRIDE_API_BASE = 'https://dashboard.cecko.dev/api/stride';
     }
   </script>

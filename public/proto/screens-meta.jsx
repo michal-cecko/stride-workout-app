@@ -1587,7 +1587,7 @@ function FormVideoOverlay({ ex, onClose }) {
   const [playing, setPlaying] = React.useState(true);
   return (
     <div style={{
-      position: 'absolute', inset: 0, zIndex: 80, background: '#000',
+      position: window.STRIDE_NATIVE ? 'fixed' : 'absolute', inset: 0, zIndex: 80, background: '#000',
       display: 'flex', flexDirection: 'column',
       animation: 'sheetUp 0.24s cubic-bezier(0.22,1,0.36,1)',
     }}>

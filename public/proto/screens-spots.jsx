@@ -184,7 +184,9 @@ function SpotAddPicker({ existingNames, onCustom, onOfficial }) {
 function SpotPhoto({ photo, tint = TS.ink, size = 56, width, height, radius = 14 }) {
   const w = width || size;
   const h = height || size;
-  const iconSize = Math.round(Math.min(w, h) * 0.34);
+  // width may be a CSS string ("100%") — only numeric dims can size the icon.
+  const numericDims = [w, h].filter((v) => typeof v === 'number');
+  const iconSize = Math.round((numericDims.length ? Math.min(...numericDims) : 56) * 0.34);
   return (
     <div style={{
       width: w, height: h, borderRadius: radius, overflow: 'hidden', flexShrink: 0,
@@ -229,7 +231,13 @@ function OfficialBadge() {
 
 function SpotCard({ spot, onClick }) {
   const meta = window.spotTypeMeta(spot.type);
-  const sched = window.scheduleLabel(spot.schedule);
+  // "Main spot (default)" is the schedule-preset label for {type:'default'} —
+  // live spots all fall back to that schedule, so showing it on every row read
+  // as "every spot is the default". Only the ACTUAL default spot carries it.
+  const defaultSchedule = !spot.schedule || spot.schedule.type === 'default';
+  const sched = defaultSchedule
+    ? (spot.isDefault ? window.t('Main spot (default)') : '')
+    : window.scheduleLabel(spot.schedule);
   return (
     <button onClick={onClick} style={{
       textAlign: 'left', cursor: 'pointer', width: '100%',
@@ -243,7 +251,7 @@ function SpotCard({ spot, onClick }) {
           {spot.reviewStatus === 'official' && <OfficialBadge/>}
         </div>
         <div style={{ fontFamily: 'Inter', fontSize: 12, color: TS.ink3, marginTop: 3 }}>
-          {meta.label} · {spot.size} · {spot.equipment.length} item{spot.equipment.length === 1 ? '' : 's'}
+          {meta.label} · {spot.size} · {window.t('{n} items', { n: spot.equipment.length })}
         </div>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 8, background: TS.lineSoft, borderRadius: 8, padding: '4px 9px' }}>
           <StrideIcon name="cal" size={12} color={TS.ink2}/>

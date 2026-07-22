@@ -387,7 +387,7 @@ function CheckInOverlay({ level, note, onSet, onSetNote, onClose, go }) {
   const tint = chosen.color;
 
   return (
-    <div style={{ position: 'absolute', inset: 0, zIndex: 60, background: TT.bg, display: 'flex', flexDirection: 'column', animation: 'sheetUp 0.28s cubic-bezier(0.22,1,0.36,1)' }}>
+    <div style={{ position: window.STRIDE_NATIVE ? 'fixed' : 'absolute', inset: 0, zIndex: 60, background: TT.bg, display: 'flex', flexDirection: 'column', animation: 'sheetUp 0.28s cubic-bezier(0.22,1,0.36,1)' }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 4px' }}>
         <IconBtn icon="close" size={38} onClick={onClose}/>
@@ -1169,7 +1169,7 @@ function SessionEditCoachChat({ session: s, persona, onBack }) {
     setMessages((m) => [...m, { who: 'me', text: t }]);
     setInput('');
     setTyping(true);
-    const scoped = (isToday ? "[Editing TODAY's session: " : '[Editing session: ') + s.title + '] ' + t;
+    const scoped = window.t(isToday ? "[Editing TODAY's session: {title}] " : '[Editing session: {title}] ', { title: s.title }) + t;
     window.__strideCoach.send(scoped)
       .then((reply) => { setTyping(false); setMessages((m) => [...m, reply]); })
       .catch(() => { setTyping(false); setMessages((m) => [...m, { who: 'ai', text: window.t('Sorry — I couldn’t reach your coach just now.') }]); });
@@ -1743,7 +1743,7 @@ function ActiveBlockCard({ block: b, onOpen }) {
         <span style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: 700, color: TT.ink3, letterSpacing: 0.6 }}>{b.phase}</span>
       </div>
       <h2 style={{ margin: '10px 0 4px', fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 24, letterSpacing: -0.5 }}>{b.name}</h2>
-      <div style={{ fontFamily: 'Inter', fontSize: 13, color: TT.ink3 }}>{window.t('{n} weeks', { n: b.weeks })} · {b.dates}{b.weekOf ? window.t(' · Week {w} of {total}', { w: b.weekOf, total: b.weeks }) : ''}</div>
+      <div style={{ fontFamily: 'Inter', fontSize: 13, color: TT.ink3 }}>{window.t('{n} weeks', { n: b.weeks })} · {b.dates}{b.weekOf ? ' · ' + window.t('Week {w} of {total}', { w: b.weekOf, total: b.weeks }) : ''}</div>
       <div style={{ marginTop: 16, height: 8, borderRadius: 8, background: TT.lineSoft, overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: TT.accent }}/>
       </div>
@@ -1837,7 +1837,7 @@ function BlockDetailBody({ block, trainer, onOpenSession, onEditCoach }) {
         <span style={{ fontFamily: 'Inter', fontSize: 12, fontWeight: 700, color: TT.ink3 }}>{b.phase}</span>
       </div>
       <div style={{ fontFamily: 'Inter', fontSize: 13, color: TT.ink2, lineHeight: 1.5, marginBottom: 10 }}>{b.summary}</div>
-      <div style={{ fontFamily: 'Inter', fontSize: 12.5, color: TT.ink3 }}>{window.t('{n} weeks', { n: b.weeks })} · {b.dates}{b.weekOf ? window.t(' · Week {w} of {total}', { w: b.weekOf, total: b.weeks }) : ''}</div>
+      <div style={{ fontFamily: 'Inter', fontSize: 12.5, color: TT.ink3 }}>{window.t('{n} weeks', { n: b.weeks })} · {b.dates}{b.weekOf ? ' · ' + window.t('Week {w} of {total}', { w: b.weekOf, total: b.weeks }) : ''}</div>
       {(b.status !== 'upcoming') && (
         <div style={{ marginTop: 12, height: 8, borderRadius: 8, background: TT.lineSoft, overflow: 'hidden' }}>
           <div style={{ width: `${pct}%`, height: '100%', background: b.accent || TT.accent }}/>
@@ -1902,7 +1902,7 @@ function BlockDetailBody({ block, trainer, onOpenSession, onEditCoach }) {
 
       {/* Applied changes (history) */}
       <div style={{ marginTop: 22 }}>
-        <SectionHeader title={`${trainer}'s changes`} right={<Chip bg={TT.lineSoft}>{b.changes.length}</Chip>}/>
+        <SectionHeader title={window.t("{name}'s changes", { name: trainer })} right={<Chip bg={TT.lineSoft}>{b.changes.length}</Chip>}/>
         {b.changes.length === 0 ? (
           <div style={{ marginTop: 10, padding: '20px 16px', textAlign: 'center', background: TT.surface, border: `1px dashed ${TT.line}`, borderRadius: 14, fontFamily: 'Inter', fontSize: 12.5, color: TT.ink3 }}>
             No changes yet — this block hasn’t started.
@@ -2163,7 +2163,7 @@ function Sheet({ title, children, onClose }) {
   }, []);
   return (
     <div ref={overlayRef} style={{
-      position: 'absolute', inset: 0, zIndex: 50,
+      position: window.STRIDE_NATIVE ? 'fixed' : 'absolute', inset: 0, zIndex: 50,
       background: 'rgba(10,10,10,0.45)',
       display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
       touchAction: 'none', // no scroll gestures on the backdrop
