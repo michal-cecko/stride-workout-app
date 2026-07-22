@@ -88,9 +88,13 @@
     post('/personal-records', data.prs);
     return seq;
   };
-  window.__stridePlanRecommend = function (note, base) {
-    return api('/plan/recommend', { method: 'POST', body: JSON.stringify({ note: note || null, base: base || null }) })
-      .then(function (r) { return (r && r.options) || []; });
+  window.__stridePlanRecommend = function (note, base, weeksRange) {
+    return api('/plan/recommend', { method: 'POST', body: JSON.stringify({
+      note: note || null,
+      base: base || null,
+      weeks_min: (weeksRange && weeksRange[0]) || null,
+      weeks_max: (weeksRange && weeksRange[1]) || null,
+    }) }).then(function (r) { return (r && r.options) || []; });
   };
   window.__stridePlanGenerate = function (option, startDate, note) {
     return api('/plan/generate', { method: 'POST', body: JSON.stringify({ option: option, start_date: startDate || null, note: note || null }) });

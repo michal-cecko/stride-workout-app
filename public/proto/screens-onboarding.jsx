@@ -96,6 +96,11 @@ function OnboardingScreen({ go }) {
   const [options, setOptions] = React.useState([]);
   const [picked, setPicked] = React.useState(null);
   const [questions, setQuestions] = React.useState([]);
+  // Mesocycle length range [min, max] weeks the recommended options must fit.
+  // Ref mirrors state so fetchOptions closures always read the latest pick.
+  const [weeksRange, _setWeeksRange] = React.useState([4, 8]);
+  const weeksRangeRef = React.useRef(weeksRange);
+  const setWeeksRange = (r) => { weeksRangeRef.current = r; _setWeeksRange(r); };
 
   const toggleStyle = (k) => setStyles(s => s.includes(k) ? s.filter(x => x !== k) : [...s, k]);
   const applyPreset = (key) => {
@@ -147,7 +152,7 @@ function OnboardingScreen({ go }) {
   // Shared: fetch options (optionally adjusting a selected `base` plan with a note).
   const fetchOptions = (note, base) => {
     setPhase('recommending');
-    return window.__stridePlanRecommend(note, base)
+    return window.__stridePlanRecommend(note, base, weeksRangeRef.current)
       .then(opts => {
         setOptions(opts || []);
         setPicked((opts && opts[0]) || null);
@@ -372,7 +377,8 @@ function OnboardingScreen({ go }) {
         )}
 
         {step === last && (
-          <PlanStep phase={phase} options={options} picked={picked} setPicked={setPicked} questions={questions} onGenerate={startQuestions} onAnswers={submitAnswers} onSkipQuestions={doGenerate} onRetry={startRecommend} onAdjust={adjustPlan}/>
+          <PlanStep phase={phase} options={options} picked={picked} setPicked={setPicked} questions={questions} onGenerate={startQuestions} onAnswers={submitAnswers} onSkipQuestions={doGenerate} onRetry={startRecommend} onAdjust={adjustPlan}
+            weeksRange={weeksRange} setWeeksRange={setWeeksRange} onRefetchRange={() => fetchOptions()}/>
         )}
       </div>
 
@@ -396,11 +402,45 @@ function OnboardingScreen({ go }) {
 }
 
 // Final step — recommend, pick, (clarify), generate.
-function PlanStep({ phase, options, picked, setPicked, questions, onGenerate, onAnswers, onSkipQuestions, onRetry, onAdjust }) {
+// One track, two knobs: the classic overlapped pair of native range inputs.
+// Tracks are pointer-transparent; only the thumbs take touches, so each knob
+// drags independently. Bounds 3–12 weeks (a sane mesocycle).
+const WEEKS_MIN = 3, WEEKS_MAX = 12;
+function WeeksRangeSlider({ value, onChange }) {
+  const [lo, hi] = value;
+  const pct = (v) => ((v - WEEKS_MIN) / (WEEKS_MAX - WEEKS_MIN)) * 100;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <style>{`
+        .wk-range { -webkit-appearance: none; appearance: none; position: absolute; inset: 0; width: 100%; height: 100%; background: transparent; pointer-events: none; margin: 0; }
+        .wk-range::-webkit-slider-runnable-track { background: transparent; }
+        .wk-range::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 2.5px solid #101013; box-shadow: 0 1px 5px rgba(0,0,0,.3); cursor: pointer; margin-top: 2px; }
+        .wk-range::-moz-range-track { background: transparent; }
+        .wk-range::-moz-range-thumb { pointer-events: auto; width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 2.5px solid #101013; cursor: pointer; }
+      `}</style>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+        <span style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 10.5, color: TO.ink3, textTransform: 'uppercase', letterSpacing: 1 }}>{window.t('Mesocycle length')}</span>
+        <span style={{ fontFamily: 'Inter', fontSize: 12.5, fontWeight: 800, color: TO.ink }}>{window.t('{lo}–{hi} wk', { lo, hi })}</span>
+      </div>
+      <div style={{ position: 'relative', height: 28 }}>
+        <div style={{ position: 'absolute', left: 0, right: 0, top: 11, height: 6, borderRadius: 6, background: TO.line }}/>
+        <div style={{ position: 'absolute', top: 11, height: 6, borderRadius: 6, background: TO.volt, left: `${pct(lo)}%`, width: `${pct(hi) - pct(lo)}%` }}/>
+        <input className="wk-range" type="range" min={WEEKS_MIN} max={WEEKS_MAX} step={1} value={lo}
+          onChange={(e) => onChange([Math.min(Number(e.target.value), hi), hi])}/>
+        <input className="wk-range" type="range" min={WEEKS_MIN} max={WEEKS_MAX} step={1} value={hi}
+          onChange={(e) => onChange([lo, Math.max(Number(e.target.value), lo)])}/>
+      </div>
+    </div>
+  );
+}
+
+function PlanStep({ phase, options, picked, setPicked, questions, onGenerate, onAnswers, onSkipQuestions, onRetry, onAdjust, weeksRange, setWeeksRange, onRefetchRange }) {
   const [adjusting, setAdjusting] = React.useState(false);
   const [note, setNote] = React.useState('');
   // Free-text context added to the coach right before generation.
   const [extra, setExtra] = React.useState('');
+  // The options on screen were fetched for a previous range → offer a refresh.
+  const [rangeDirty, setRangeDirty] = React.useState(false);
 
   if (phase === 'saving') {
     return <OnbBusy title="Saving your setup…" sub="Getting your profile ready."/>;
@@ -428,6 +468,14 @@ function PlanStep({ phase, options, picked, setPicked, questions, onGenerate, on
   const submitAdjust = () => { if (!note.trim()) return; setAdjusting(false); onAdjust(note.trim()); setNote(''); };
   return (
     <StepWrap title="Pick your plan" sub="Recommended for you — you can change it later.">
+      <WeeksRangeSlider value={weeksRange || [4, 8]} onChange={(r) => { setWeeksRange(r); setRangeDirty(true); }}/>
+      {rangeDirty && (
+        <button onClick={() => { setRangeDirty(false); onRefetchRange(); }} style={{
+          width: '100%', marginBottom: 12, padding: '10px 12px', borderRadius: 12, cursor: 'pointer',
+          border: `1.5px dashed ${TO.ink3}`, background: 'none',
+          fontFamily: 'Inter', fontSize: 13, fontWeight: 800, color: TO.ink,
+        }}>{window.t('Update options for {lo}–{hi} weeks', { lo: (weeksRange || [4, 8])[0], hi: (weeksRange || [4, 8])[1] })}</button>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {(options || []).map((o, i) => {
           const active = picked && picked.key === o.key;

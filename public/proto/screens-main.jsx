@@ -1784,6 +1784,10 @@ function BlockDetailBody({ block, trainer, onOpenSession, onEditCoach }) {
           <div style={{ width: `${pct}%`, height: '100%', background: b.accent || TT.accent }}/>
         </div>
       )}
+      {/* A finished block's stats ARE its results — give them their heading. */}
+      {b.status === 'done' && (b.stats || []).length > 0 && (
+        <div style={{ marginTop: 20 }}><SectionHeader title="Block results"/></div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 16 }}>
         {b.stats.map((s, i) => <BigStat key={i} label={s.label} value={s.value}/>)}
       </div>
