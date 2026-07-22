@@ -935,11 +935,11 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
       .then(() => go('active-config')).catch(() => go('active-config'));
   };
 
-  if (mode === 'edit') {
-    return <SessionEditor session={s} persona={persona} go={go} onBack={() => setMode('view')} onClose={onClose}/>;
-  }
-  if (mode === 'chat') {
-    return <SessionChat session={s} persona={persona} onBack={() => setMode('view')}/>;
+  // Editing = talking to the REAL coach (propose → confirm), scoped to THIS
+  // session. The old SessionEditor/SessionChat were prototype mocks: fake
+  // "sent to trainer" flows that never touched the API (and black-screened).
+  if (mode === 'edit' || mode === 'chat') {
+    return <SessionCoachChat session={s} persona={persona} onBack={() => setMode('view')}/>;
   }
 
   // Show THIS session's REAL exercises. If the summary already carries them
@@ -1136,6 +1136,61 @@ function EditSelect({ value, onChange, options, bold = true }) {
       </select>
       <div style={{ position: 'absolute', right: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
         <StrideIcon name="chevD" size={16} color={TT.ink3}/>
+      </div>
+    </div>
+  );
+}
+
+// Live session editing via the real coach: every request goes to the general
+// coach conversation prefixed with which session is being edited (the backend
+// resolves any session by title/date via session_ref tools), replies come back
+// with proposal cards the athlete applies or dismisses.
+function SessionCoachChat({ session: s, persona, onBack }) {
+  const trainer = (persona && persona.name) || 'Coach';
+  const isToday = s.status === 'today';
+  const greeting = {
+    who: 'ai',
+    text: window.t('Tell me what to change in this session — I’ll stage it and you confirm. e.g. “swap dips for push-ups” or “make it shorter”.'),
+  };
+  const [messages, setMessages] = React.useState([greeting]);
+  const [input, setInput] = React.useState('');
+  const [typing, setTyping] = React.useState(false);
+  const scrollRef = React.useRef(null);
+
+  React.useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, typing]);
+
+  const send = (text) => {
+    const t = (text || input).trim();
+    if (!t || !window.__strideCoach) return;
+    setMessages((m) => [...m, { who: 'me', text: t }]);
+    setInput('');
+    setTyping(true);
+    const scoped = (isToday ? "[Editing TODAY's session: " : '[Editing session: ') + s.title + '] ' + t;
+    window.__strideCoach.send(scoped)
+      .then((reply) => { setTyping(false); setMessages((m) => [...m, reply]); })
+      .catch(() => { setTyping(false); setMessages((m) => [...m, { who: 'ai', text: window.t('Sorry — I couldn’t reach your coach just now.') }]); });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', padding: '4px 0 0' }}>
+      <div onClick={onBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', marginBottom: 12, color: TT.ink2 }}>
+        <StrideIcon name="arrowLeft" size={18} color={TT.ink2}/>
+        <span style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: 700 }}>{window.t('Back to session')}</span>
+      </div>
+      <SectionHeader title={window.t('Edit with {name}', { name: trainer })}/>
+      <div style={{ marginTop: 10, background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 16, padding: 12 }}>
+        <div ref={scrollRef} style={{ maxHeight: '52vh', minHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 10 }}>
+          {messages.map((m, i) => <ChatBubble key={i} m={m} onCard={() => {}}/>)}
+          {typing && <ChatBubble m={{ who: 'ai', text: '…', typing: true }}/>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: TT.bg, border: `1px solid ${TT.line}`, borderRadius: 999, padding: '5px 6px 5px 14px' }}>
+          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()}
+            placeholder={window.t('Ask {name} to change this session…', { name: trainer })}
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontFamily: 'Inter', fontSize: 13.5, color: TT.ink, padding: '7px 0' }}/>
+          <button onClick={() => send()} aria-label="Send" style={{ width: 36, height: 36, borderRadius: 999, background: TT.ink, border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <StrideIcon name="send" size={16} color="#fff"/>
+          </button>
+        </div>
       </div>
     </div>
   );
