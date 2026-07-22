@@ -935,16 +935,12 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
       .then(() => go('active-config')).catch(() => go('active-config'));
   };
 
-  // Editing = talking to the REAL coach (propose → confirm), scoped to THIS
-  // session. The old SessionEditor/SessionChat were prototype mocks: fake
-  // "sent to trainer" flows that never touched the API (and black-screened).
-  if (mode === 'edit' || mode === 'chat') {
-    return <SessionCoachChat session={s} persona={persona} onBack={() => setMode('view')}/>;
-  }
-
   // Show THIS session's REAL exercises. If the summary already carries them
   // (today's workout), map them; otherwise load /sessions/{id}. Only fall back to
   // the kind sample if there's genuinely nothing to load.
+  // NOTE: ALL hooks must run before any conditional return below — an early
+  // return between hooks ("edit" mode) crashes React with a hooks-order error
+  // (the original black-screen on "Edit").
   const [liveEx, setLiveEx] = React.useState(() =>
     (s.exercises && s.exercises.length) ? s.exercises.map(liveExToDisplay) : null
   );
@@ -958,6 +954,14 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
         .catch(() => {});
     }
   }, [s.id]);
+
+  // Editing = talking to the REAL coach (propose → confirm), scoped to THIS
+  // session. The old SessionEditor/SessionChat were prototype mocks: fake
+  // "sent to trainer" flows that never touched the API.
+  if (mode === 'edit' || mode === 'chat') {
+    return <SessionCoachChat session={s} persona={persona} onBack={() => setMode('view')}/>;
+  }
+
   const exercises = liveEx || SESSION_SAMPLES[s.kind] || [];
 
   return (
