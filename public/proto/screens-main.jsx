@@ -742,7 +742,7 @@ function TodayRow({ d, go, onOpen }) {
           </div>
           <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 21, lineHeight: 1.1 }}>{d.title}</div>
           <div style={{ fontFamily: 'Inter', fontSize: 12, color: '#ffffffaa', marginTop: 4 }}>
-            {d.duration ? `${d.duration} min planned` : '—'}
+            {d.duration ? window.t('{m} min planned', { m: d.duration }) : '—'}
             {d.adjustments && d.adjustments.length > 0 && <span style={{ color: TT.volt, fontWeight: 600 }}> · {d.adjustments.length} changes</span>}
           </div>
         </div>
@@ -775,7 +775,7 @@ function WeekRow({ d, last, onOpen }) {
         }}>{d.title}</div>
         {skipped ? (
           <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.amber, fontWeight: 600, marginTop: 4 }}>
-            Skipped · {d.skipReason}
+            {window.t('Skipped ·')} {d.skipReason}
           </div>
         ) : (
           <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, marginTop: 4 }}>
@@ -846,7 +846,7 @@ function AITrainerNote({ persona, s }) {
   const note = aiSessionNote(persona && persona.key, s);
   return (
     <div style={{ marginBottom: 16 }}>
-      <SectionHeader title={`${(persona && persona.name) || 'Trainer'} says`}/>
+      <SectionHeader title={window.t('{name} says', { name: (persona && persona.name) || 'Trainer' })}/>
       <div style={{ marginTop: 10, display: 'flex', gap: 12, padding: 14, background: TT.ink, borderRadius: 14 }}>
         <div style={{ width: 30, height: 30, borderRadius: 15, background: TT.volt, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <StrideIcon name="sparkles" size={16} color={TT.ink}/>
@@ -959,7 +959,7 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
   // session. The old SessionEditor/SessionChat were prototype mocks: fake
   // "sent to trainer" flows that never touched the API.
   if (mode === 'edit' || mode === 'chat') {
-    return <SessionCoachChat session={s} persona={persona} onBack={() => setMode('view')}/>;
+    return <SessionEditCoachChat session={s} persona={persona} onBack={() => setMode('view')}/>;
   }
 
   const exercises = liveEx || SESSION_SAMPLES[s.kind] || [];
@@ -995,13 +995,13 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
           {skipped && <Chip bg={TT.amber + '22'} ink={TT.amber} dot color={TT.amber}>Skipped</Chip>}
         </div>
         <div style={{ fontFamily: 'Inter', fontSize: 11, opacity: 0.7, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700 }}>
-          {s.day} · May {s.date}
+          {s.day}{s.date ? ' · ' + s.date : ''}
         </div>
         <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 22, lineHeight: 1.15 }}>{s.title}</div>
         {!skipped && (
           <div style={{ display: 'flex', gap: 18, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${(done || today) ? '#ffffff22' : TT.lineSoft}` }}>
             <SessionStat label="Duration" value={`${s.duration} min`} dim={!done && !today}/>
-            {!isRest && <SessionStat label={done ? 'Volume' : 'Target'} value={done ? `${(s.volume/1000).toFixed(1)}t` : `${exercises.length} lifts`} dim={!done && !today}/>}
+            {!isRest && <SessionStat label={done ? 'Volume' : 'Target'} value={done ? `${(s.volume/1000).toFixed(1)}t` : window.t('{n} lifts', { n: exercises.length })} dim={!done && !today}/>}
             <SessionStat label={done ? 'Avg RPE' : 'Intensity'} value={done ? '7.4' : (isRest ? 'Z2' : 'RPE 7')} dim={!done && !today}/>
           </div>
         )}
@@ -1017,7 +1017,7 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
             <StrideIcon name="chat" size={17} color={TT.volt}/>
           </div>
           <div style={{ flex: 1, textAlign: 'left', fontFamily: 'Inter', fontSize: 13, color: TT.ink3 }}>
-            Ask {persona.name} to change something…
+            {window.t('Ask {name} to change something…', { name: persona.name })}
           </div>
           <StrideIcon name="chevR" size={18} color={TT.ink3}/>
         </button>
@@ -1149,7 +1149,7 @@ function EditSelect({ value, onChange, options, bold = true }) {
 // coach conversation prefixed with which session is being edited (the backend
 // resolves any session by title/date via session_ref tools), replies come back
 // with proposal cards the athlete applies or dismisses.
-function SessionCoachChat({ session: s, persona, onBack }) {
+function SessionEditCoachChat({ session: s, persona, onBack }) {
   const trainer = (persona && persona.name) || 'Coach';
   const isToday = s.status === 'today';
   const greeting = {
