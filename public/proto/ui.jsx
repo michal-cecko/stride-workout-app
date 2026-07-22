@@ -848,12 +848,30 @@ function strideMdInline(text, keyBase) {
   return parts;
 }
 
+// Models sometimes emit inline LaTeX ("$\rightarrow$", "$\times$") — swap the
+// known commands for their unicode glyphs and drop the math delimiters. The
+// $…$ wrapper is only stripped when the body carries a backslash command, so
+// money amounts ("$5 and $10") never get eaten.
+const STRIDE_LATEX_GLYPHS = {
+  '\\rightarrow': '→', '\\to': '→', '\\Rightarrow': '⇒', '\\leftarrow': '←',
+  '\\leftrightarrow': '↔', '\\uparrow': '↑', '\\downarrow': '↓',
+  '\\times': '×', '\\cdot': '·', '\\pm': '±', '\\approx': '≈', '\\sim': '~',
+  '\\ge': '≥', '\\geq': '≥', '\\le': '≤', '\\leq': '≤', '\\ne': '≠', '\\neq': '≠',
+  '\\deg': '°', '\\degree': '°', '\\circ': '°', '\\infty': '∞', '\\%': '%',
+};
+function strideStripLatex(text) {
+  const swap = (s) => s.replace(/\\[a-zA-Z]+|\\%/g, (cmd) => STRIDE_LATEX_GLYPHS[cmd] || cmd);
+  return String(text)
+    .replace(/\$\s*((?:[^$\n\\]*\\[a-zA-Z%][^$\n]*))\$/g, (m, body) => swap(body).replace(/[{}]/g, '').replace(/\s+/g, ' ').trim())
+    .replace(/\\[a-zA-Z]+/g, (cmd) => STRIDE_LATEX_GLYPHS[cmd] || cmd);
+}
+
 function renderCoachMarkdown(text) {
   const out = [];
   let list = null, k = 0;
   const flush = () => { if (list) { out.push(<ul key={`u${k++}`} style={{ margin: '4px 0', paddingLeft: 18 }}>{list}</ul>); list = null; } };
 
-  String(text || '').split('\n').forEach((line, i) => {
+  String(strideStripLatex(text || '')).split('\n').forEach((line, i) => {
     const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
     if (bullet) { (list = list || []).push(<li key={`l${i}`}>{strideMdInline(bullet[1], `l${i}`)}</li>); return; }
     flush();
