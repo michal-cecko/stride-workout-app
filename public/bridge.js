@@ -450,7 +450,11 @@
 
   function boot() {
     return loadLive().catch(function (e) {
-      if (e && e.status === 401) { localStorage.removeItem('stride_token'); token = null; showLogin('Your session expired — please sign in again.'); throw e; }
+      if (e && (e.status === 401 || e.status === 403)) {
+        localStorage.removeItem('stride_token'); token = null;
+        showLoginGate(e.status === 403 ? (e.message || 'Stride access is not enabled for this account.') : 'Your session expired — please sign in again.');
+        throw e;
+      }
       console.error('Stride: live data failed, booting with mock data.', e);
     }).then(function () {
       var login = document.getElementById('stride-login');
@@ -476,10 +480,37 @@
     'Your session expired — please sign in again.': 'Tvoja relácia vypršala — prihlás sa znova.',
     'The provided credentials are incorrect.': 'Zadané údaje sú nesprávne.',
     'Stride access is not enabled for this account.': 'Stride prístup nie je pre tento účet povolený.',
+    'Sign in to Stride': 'Prihlásenie do Stride',
+    'Unlock with Face ID': 'Odomknúť cez Face ID',
+    'Sign in with Face ID next time': 'Nabudúce sa prihlásiť cez Face ID',
   };
   function lt(s) { return (loginLang() === 'sk' && LOGIN_SK[s]) || s; }
 
-  function showLogin(message) {
+  // ---- Face ID / biometric unlock -------------------------------------------
+  // @aparajita/capacitor-biometric-auth, called through the raw plugin bridge
+  // (this file is not bundled, so window.Capacitor.Plugins is the API surface).
+  // The Bearer token stays the session credential — biometrics only gate the
+  // app unlocking it, so the backend needs nothing new. LABiometryType: 1 =
+  // Touch ID, 2 = Face ID.
+  var Bio = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BiometricAuthNative) || null;
+
+  function bioEnabled() { try { return localStorage.getItem('stride_bio') === '1'; } catch (e) { return false; } }
+  function bioTypeLabel(b) { return (b && b.biometryType === 1) ? 'Touch ID' : 'Face ID'; }
+  function checkBiometry() {
+    if (!Bio) return Promise.resolve(null);
+    return Bio.checkBiometry().then(function (b) { return (b && b.isAvailable) ? b : null; })
+      .catch(function () { return null; });
+  }
+  function bioAuthenticate(label) {
+    return Bio.internalAuthenticate({
+      reason: lt('Sign in to Stride').replace('Face ID', label),
+      allowDeviceCredential: true,
+    });
+  }
+
+  function showLogin(message, bio) {
+    var label = bioTypeLabel(bio);
+    var canUnlock = !!(bio && token && bioEnabled());
     var root = document.getElementById('stride-login') || document.createElement('div');
     root.id = 'stride-login';
     root.innerHTML = ''
@@ -487,14 +518,22 @@
       + '<div class="lg-brand">Stride</div>'
       + '<div class="lg-sub">' + lt('Your AI training companion.') + '</div>'
       + (message ? '<div class="lg-msg">' + lt(message) + '</div>' : '')
+      + (canUnlock ? '<button class="lg-btn" id="lg-bio" type="button" style="margin-bottom:14px">' + lt('Unlock with Face ID').replace('Face ID', label) + '</button>' : '')
       + '<label class="lg-label">' + lt('Email') + '</label>'
       + '<input class="lg-input" id="lg-email" type="email" autocapitalize="none" value="michal.cecko@gmail.com"/>'
       + '<label class="lg-label">' + lt('Password') + '</label>'
       + '<input class="lg-input" id="lg-pass" type="password" value=""/>'
+      + (bio ? '<label style="display:flex;gap:8px;align-items:center;margin:10px 0 2px;font-size:13px;opacity:.85"><input type="checkbox" id="lg-bio-enable"' + (localStorage.getItem('stride_bio') === '0' ? '' : ' checked') + '/>' + lt('Sign in with Face ID next time').replace('Face ID', label) + '</label>' : '')
       + '<div class="lg-err" id="lg-err"></div>'
       + '<button class="lg-btn" id="lg-go" type="submit">' + lt('Sign in') + '</button>'
       + '</form></div>';
     if (!root.parentNode) document.body.appendChild(root);
+
+    if (canUnlock) {
+      document.getElementById('lg-bio').addEventListener('click', function () {
+        bioAuthenticate(label).then(boot).catch(function () { /* stay on the login gate */ });
+      });
+    }
 
     document.getElementById('lg-form').addEventListener('submit', function (e) {
       e.preventDefault();
@@ -510,6 +549,8 @@
         }),
       }).then(function (res) {
         token = res.token; localStorage.setItem('stride_token', token);
+        var enable = document.getElementById('lg-bio-enable');
+        if (enable) { try { localStorage.setItem('stride_bio', enable.checked ? '1' : '0'); } catch (e2) {} }
         boot();
       }).catch(function (ex) {
         btn.disabled = false; btn.textContent = lt('Sign in');
@@ -518,6 +559,21 @@
     });
   }
 
+  function showLoginGate(message) {
+    checkBiometry().then(function (bio) { showLogin(message, bio); });
+  }
+
   // ---- entry -----------------------------------------------------------------
-  if (token) boot(); else showLogin();
+  // With Face ID enabled, a stored session boots only after the owner verifies;
+  // cancelling lands on the login gate, which still offers the unlock button.
+  if (token && bioEnabled() && Bio) {
+    checkBiometry().then(function (bio) {
+      if (!bio) { boot(); return; }
+      bioAuthenticate(bioTypeLabel(bio)).then(boot).catch(function () { showLogin(null, bio); });
+    });
+  } else if (token) {
+    boot();
+  } else {
+    showLoginGate();
+  }
 })();
