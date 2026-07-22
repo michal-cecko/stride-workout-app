@@ -896,7 +896,7 @@ function SessionCoachChat({ workout, onClose }) {
               background: m.who === 'me' ? TX.ink : TX.lineSoft,
               color: m.who === 'me' ? '#fff' : TX.ink,
               fontFamily: 'Inter', fontSize: 13.5, lineHeight: 1.45,
-            }}>{m.text}</div>
+            }}>{m.who === 'me' ? m.text : window.renderCoachMarkdown(m.text)}</div>
           </div>
         ))}
       </div>
@@ -1210,6 +1210,8 @@ function ChatBubble({ m, onCard, highlight }) {
   const isMe = m.who === 'me';
   const hasCards = !isMe && m.cards && m.cards.length > 0;
   const renderText = (txt) => {
+    // AI replies carry light markdown; the search-highlight path stays plain.
+    if (!highlight && !isMe && txt) return window.renderCoachMarkdown(txt);
     if (!highlight || !txt) return txt;
     const parts = String(txt).split(new RegExp(`(${highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig'));
     return parts.map((p, i) =>

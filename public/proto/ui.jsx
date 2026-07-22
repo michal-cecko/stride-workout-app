@@ -827,7 +827,48 @@ function PrEditor({ initial, lockType, onSave, onCancel }) {
   );
 }
 
+// ── Coach markdown ───────────────────────────────────────────────────────────
+// The coach writes light markdown (**bold**, *italic*, `code`, "- " bullets,
+// "### " headings). Render it in chat bubbles without any external parser —
+// raw asterisks in the UI read as a bug ("(**Upper body**)").
+function strideMdInline(text, keyBase) {
+  const parts = [];
+  const src = String(text);
+  const re = /(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`)/g;
+  let last = 0, match, k = 0;
+  while ((match = re.exec(src)) !== null) {
+    if (match.index > last) parts.push(src.slice(last, match.index));
+    const tok = match[0];
+    if (tok.startsWith('**')) parts.push(<strong key={`${keyBase}b${k++}`}>{tok.slice(2, -2)}</strong>);
+    else if (tok.startsWith('`')) parts.push(<code key={`${keyBase}c${k++}`} style={{ fontSize: '0.92em', background: 'rgba(0,0,0,0.07)', borderRadius: 4, padding: '0 4px' }}>{tok.slice(1, -1)}</code>);
+    else parts.push(<em key={`${keyBase}i${k++}`}>{tok.slice(1, -1)}</em>);
+    last = match.index + tok.length;
+  }
+  if (last < src.length) parts.push(src.slice(last));
+  return parts;
+}
+
+function renderCoachMarkdown(text) {
+  const out = [];
+  let list = null, k = 0;
+  const flush = () => { if (list) { out.push(<ul key={`u${k++}`} style={{ margin: '4px 0', paddingLeft: 18 }}>{list}</ul>); list = null; } };
+
+  String(text || '').split('\n').forEach((line, i) => {
+    const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+    if (bullet) { (list = list || []).push(<li key={`l${i}`}>{strideMdInline(bullet[1], `l${i}`)}</li>); return; }
+    flush();
+    const heading = line.match(/^#{1,4}\s+(.*)$/);
+    if (heading) { out.push(<div key={`h${i}`} style={{ fontWeight: 800, marginTop: i > 0 ? 6 : 0 }}>{strideMdInline(heading[1], `h${i}`)}</div>); return; }
+    if (line.trim() === '') { out.push(<div key={`s${i}`} style={{ height: 6 }}/>); return; }
+    out.push(<div key={`p${i}`}>{strideMdInline(line, `p${i}`)}</div>);
+  });
+  flush();
+
+  return out;
+}
+
 Object.assign(window, {
+  renderCoachMarkdown,
   StrideIcon, BodySilhouette, StrideLineChart, ProgressRing,
   StrideBottomNav, StrideHeader, Chip, StrideButton, IconBtn, Card, Screen,
   StrideToggle, useStridePrefs, setStridePref, readStridePrefs,

@@ -1474,7 +1474,7 @@ function SessionChat({ session: s, persona, onBack }) {
               color: m.who === 'me' ? '#fff' : TT.ink,
               border: m.who === 'me' ? 'none' : `1px solid ${TT.line}`,
               fontFamily: 'Inter', fontSize: 13.5, lineHeight: 1.45,
-            }}>{m.text}</div>
+            }}>{m.who === 'me' ? m.text : window.renderCoachMarkdown(m.text)}</div>
             {m.change && (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: TT.volt, borderRadius: 10, padding: '7px 11px' }}>
                 <StrideIcon name="check" size={13} color={TT.ink} strokeWidth={3}/>
