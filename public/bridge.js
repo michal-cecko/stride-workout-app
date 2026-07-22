@@ -473,9 +473,9 @@
     'Sign in': 'Prihlásiť sa',
     'Signing in…': 'Prihlasujem…',
     'Could not sign in.': 'Nepodarilo sa prihlásiť.',
-    'Demo login pre-filled · demo@stride.test': 'Demo prihlásenie predvyplnené · demo@stride.test',
     'Your session expired — please sign in again.': 'Tvoja relácia vypršala — prihlás sa znova.',
     'The provided credentials are incorrect.': 'Zadané údaje sú nesprávne.',
+    'Stride access is not enabled for this account.': 'Stride prístup nie je pre tento účet povolený.',
   };
   function lt(s) { return (loginLang() === 'sk' && LOGIN_SK[s]) || s; }
 
@@ -488,12 +488,11 @@
       + '<div class="lg-sub">' + lt('Your AI training companion.') + '</div>'
       + (message ? '<div class="lg-msg">' + lt(message) + '</div>' : '')
       + '<label class="lg-label">' + lt('Email') + '</label>'
-      + '<input class="lg-input" id="lg-email" type="email" autocapitalize="none" value="demo@stride.test"/>'
+      + '<input class="lg-input" id="lg-email" type="email" autocapitalize="none" value="michal.cecko@gmail.com"/>'
       + '<label class="lg-label">' + lt('Password') + '</label>'
-      + '<input class="lg-input" id="lg-pass" type="password" value="password"/>'
+      + '<input class="lg-input" id="lg-pass" type="password" value=""/>'
       + '<div class="lg-err" id="lg-err"></div>'
       + '<button class="lg-btn" id="lg-go" type="submit">' + lt('Sign in') + '</button>'
-      + '<div class="lg-hint">' + lt('Demo login pre-filled · demo@stride.test') + '</div>'
       + '</form></div>';
     if (!root.parentNode) document.body.appendChild(root);
 
