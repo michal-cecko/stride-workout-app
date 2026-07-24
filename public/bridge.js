@@ -228,12 +228,28 @@
             section: ex.section || 'working',
             metricType: ex.metric_type || 'load',
             metrics: ex.metrics || null,
-            sets: (ex.sets || []).map(function (st) { return { kind: st.kind, reps: st.reps, kg: st.kg, band: st.band, rest: st.rest }; }),
+            sets: (ex.sets || []).map(function (st) { return { id: st.id, kind: st.kind, reps: st.reps, kg: st.kg, band: st.band, rest: st.rest }; }),
           };
         }),
       };
       return window.STRIDE_ACTIVE_WORKOUT;
     });
+  };
+
+  // Record that a session started (status stays 'today', sets started_at). Idempotent
+  // server-side. Fire-and-forget: never blocks or disrupts the workout on a hiccup.
+  window.__strideStartSession = function (id) {
+    if (id == null) return Promise.resolve(null);
+    return api('/sessions/' + id + '/start', { method: 'POST', body: '{}' }).catch(function () { return null; });
+  };
+
+  // Save one set's result to the backend as it's completed (metric-keyed: reps /
+  // seconds / weight_kg / band_kg). Fire-and-forget, NO global refresh — we don't
+  // want to reload the plan mid-workout; the final 'complete' call refreshes.
+  window.__strideLogSet = function (sessionId, setId, body) {
+    if (sessionId == null || setId == null) return Promise.resolve(null);
+    return api('/sessions/' + sessionId + '/sets/' + setId, { method: 'PATCH', body: JSON.stringify(body || {}) })
+      .catch(function () { return null; });
   };
 
   // Mark a session complete on the backend (status → done, + optional rpe/notes) and
@@ -299,7 +315,7 @@
             metricType: ex.metric_type || 'load',
             metrics: ex.metrics || null,
             sets: (ex.sets || []).map(function (s) {
-              return { kind: s.kind, reps: s.reps, kg: s.kg, band: s.band, rest: s.rest };
+              return { id: s.id, kind: s.kind, reps: s.reps, kg: s.kg, band: s.band, rest: s.rest };
             }),
           };
         }),

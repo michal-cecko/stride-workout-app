@@ -483,6 +483,10 @@ function ActiveWorkoutScreen({ go, mode }) {
   const earnedRef = React.useRef([]);                   // sync mirror for STRIDE_LAST_PRS
   React.useEffect(() => { earnedRef.current = []; window.STRIDE_LAST_PRS = []; }, []);
 
+  // Tell the backend the session has started, so progress is tracked server-side
+  // (mirrors the local app). Idempotent + fire-and-forget; also runs on resume.
+  React.useEffect(() => { if (w.id != null && window.__strideStartSession) window.__strideStartSession(w.id); }, []);
+
   // Save progress (position, logged sets, form scores) on every meaningful change,
   // so quitting mid-workout resumes exactly where you left off. Real sessions only.
   const finishedRef = React.useRef(false);
@@ -577,6 +581,14 @@ function ActiveWorkoutScreen({ go, mode }) {
     };
     const nextLog = { ...completedSets, [key]: entry };
     setCompletedSets(nextLog);
+    // Save this set to the backend on the fly (metric-keyed), so progress mirrors
+    // the local app and survives across devices. Fire-and-forget.
+    if (window.__strideLogSet && w.id != null && curSet && curSet.id != null) {
+      const metrics = strideIsHold(ex) ? { seconds: entry.reps } : { reps: entry.reps };
+      if (!strideIsHold(ex) && entry.kg) metrics.weight_kg = entry.kg;
+      if (entry.band) metrics.band_kg = entry.band;
+      window.__strideLogSet(w.id, curSet.id, { is_done: true, metrics });
+    }
     detectPr(ex, curSet, entry); // celebrate a PR before advancing (works in timer & manual modes)
     // Advance
     if (setIdxC < ex.sets.length - 1) {
