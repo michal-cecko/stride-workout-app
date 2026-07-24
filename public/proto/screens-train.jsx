@@ -18,7 +18,14 @@ function GenerateScreen({ go, persona }) {
   // Training spots drive the location step + equipment available.
   const [spots] = window.useStrideSpots();
   const [equipPrefs] = window.useEquipmentPrefs();
-  const genDate = new Date(2026, 4, 21);
+  // When the session should happen — defaults to tomorrow once today is done.
+  const [schedDate, setSchedDate] = React.useState(() => {
+    const d = new Date();
+    const w = window.STRIDE_TODAYS_WORKOUT;
+    if (w && w.status === 'done') d.setDate(d.getDate() + 1);
+    return d;
+  });
+  const genDate = schedDate;
   const autoSpot = window.resolveScheduledSpot(spots, genDate);
   const [spotMode, setSpotMode] = React.useState('auto'); // 'auto' | spotId
   const activeSpot = spotMode === 'auto' ? autoSpot : (spots.find((s) => s.id === spotMode) || autoSpot);
@@ -36,6 +43,7 @@ function GenerateScreen({ go, persona }) {
   };
 
   return (
+    <>
     <Screen>
       <StrideHeader title={step < 4 ? "Generate" : "Ready to roll"} kicker={step < 4 ? window.t('Step {n} of 4 · with {name}', { n: step+1, name: persona.name }) : window.t('Generated · 5 exercises')} back onBack={() => step === 0 ? go('home') : setStep(Math.max(0, step - 1))}/>
 
@@ -46,6 +54,38 @@ function GenerateScreen({ go, persona }) {
 
         {step === 0 && (
           <StepWrap title="What are we hitting today?" sub="I'll factor in your plan + recent volume.">
+            {/* When to schedule it — today / tomorrow / any date */}
+            <div style={{ marginBottom: 14 }}>
+              <SectionHeader title="Scheduled for"/>
+              <Card style={{ marginTop: 8, padding: 12 }}>
+                {(() => {
+                  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                  const now = new Date();
+                  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+                  const sel = iso(schedDate);
+                  const chip = (label, d) => (
+                    <button key={label} onClick={() => setSchedDate(d)} style={{
+                      flex: 1, padding: '9px 0', borderRadius: 10, cursor: 'pointer',
+                      background: sel === iso(d) ? TX.ink : TX.lineSoft,
+                      color: sel === iso(d) ? '#fff' : TX.ink,
+                      border: 'none', fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12,
+                    }}>{label}</button>
+                  );
+                  return (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      {chip('Today', now)}
+                      {chip('Tomorrow', tomorrow)}
+                      <input type="date" value={sel} min={iso(now)}
+                        onChange={(e) => { if (e.target.value) setSchedDate(new Date(e.target.value + 'T00:00:00')); }}
+                        style={{
+                          flex: 1.2, padding: '7px 8px', borderRadius: 10, border: `1px solid ${TX.line}`,
+                          background: TX.surface, color: TX.ink, fontFamily: 'Inter', fontSize: 12.5, outline: 'none', minWidth: 0,
+                        }}/>
+                    </div>
+                  );
+                })()}
+              </Card>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
               {[
                 { id: 'Push',  icon: 'dumbbell', sub: 'Chest · Shoulders · Tris' },
@@ -198,6 +238,7 @@ function GenerateScreen({ go, persona }) {
               <div style={{ position: 'relative' }}>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <Chip bg="#ffffff14" ink={TX.volt} color={TX.volt} dot>AI Generated</Chip>
+                  <Chip bg="#ffffff14" ink="#fff">{schedDate.toLocaleDateString(window.strideLocale(), { weekday: 'short', day: 'numeric', month: 'numeric' })}</Chip>
                   {activeSpot && <Chip bg="#ffffff14" ink="#fff">{activeSpot.name}</Chip>}
                 </div>
                 <h2 style={{ margin: '8px 0 4px', fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 28, letterSpacing: -1, color: '#fff' }}>{focus.toUpperCase()} — {duration != null ? `${duration} MIN` : '~60 MIN'}</h2>
@@ -231,20 +272,9 @@ function GenerateScreen({ go, persona }) {
           </div>
         )}
 
-        {/* Clearance for the floating Continue button on wizard steps */}
-        <div style={{ height: step < 4 ? 150 : 30 }}/>
+        {/* Clearance below the sticky Continue button on wizard steps */}
+        <div style={{ height: step < 4 ? 16 : 30 }}/>
       </div>
-
-      {/* Step nav at bottom */}
-      {step < 4 && (
-        <div style={{ position: 'absolute', left: 20, right: 20, bottom: 100 }}>
-          <StrideButton variant={step === 3 ? 'accent' : 'primary'} block
-            iconRight={step === 3 ? 'sparkles' : 'arrowRight'}
-            onClick={() => step === 3 ? handleGen() : setStep(step + 1)}>
-            {step === 3 ? 'Generate workout' : 'Continue'}
-          </StrideButton>
-        </div>
-      )}
 
       {/* generating overlay */}
       {generating && (
@@ -263,6 +293,17 @@ function GenerateScreen({ go, persona }) {
         </div>
       )}
     </Screen>
+
+      {step < 4 && !generating && (
+        <div style={{ position: 'absolute', left: 20, right: 20, bottom: window.STRIDE_NATIVE ? 'calc(env(safe-area-inset-bottom) + 20px)' : 30, zIndex: 20 }}>
+          <StrideButton variant={step === 3 ? 'accent' : 'primary'} block
+            iconRight={step === 3 ? 'sparkles' : 'arrowRight'}
+            onClick={() => step === 3 ? handleGen() : setStep(step + 1)}>
+            {step === 3 ? 'Generate workout' : 'Continue'}
+          </StrideButton>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -304,13 +345,14 @@ function ActiveConfigScreen({ go, setActiveMode }) {
   if (!w) return null;
 
   return (
+    <>
     <Screen>
       <StrideHeader title="Get ready" kicker={w.title || w.block || ''} back onBack={() => go('home')}/>
       <div style={{ padding: '0 20px' }}>
         <Card style={{ padding: 18 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-            <BigStat label="Exercises" value={w.exercises.length}/>
-            <BigStat label="Sets" value={w.exercises.reduce((s,e) => s + e.sets.length, 0)}/>
+            <BigStat label="Exercises" value={w.exercises.filter(e => e.section !== 'warmup').length}/>
+            <BigStat label="Sets" value={w.exercises.filter(e => e.section !== 'warmup').reduce((s,e) => s + e.sets.length, 0)}/>
             <BigStat label="Est. time" value={`${w.durationMin}m`}/>
           </div>
         </Card>
@@ -327,34 +369,57 @@ function ActiveConfigScreen({ go, setActiveMode }) {
 
         <div style={{ marginTop: 18 }}>
           <SectionHeader title="Exercise queue"/>
-          <div style={{ marginTop: 10, background: TX.surface, border: `1px solid ${TX.line}`, borderRadius: 18, overflow: 'hidden' }}>
-            {w.exercises.map((ex, i) => (
+          {(() => {
+            const warm = w.exercises.filter(e => e.section === 'warmup');
+            const work = w.exercises.filter(e => e.section !== 'warmup');
+            const lastChip = (ex) => {
+              const s = ex.sets[ex.sets.length - 1];
+              return `${s.reps ? `${s.reps}${strideIsHold(ex) ? 's' : ''}` : 'AMRAP'} × ${s.kg || '—'}${s.kg ? 'kg' : ''}`;
+            };
+            const Row = (ex, badge, first) => (
               <div key={ex.id} style={{
-                padding: '14px 16px', borderTop: i ? `1px solid ${TX.lineSoft}` : 'none',
+                padding: '14px 16px', borderTop: first ? 'none' : `1px solid ${TX.lineSoft}`,
                 display: 'flex', alignItems: 'center', gap: 12,
               }}>
-                <div style={{ width: 28, height: 28, borderRadius: 8, background: TX.lineSoft, display: 'grid', placeItems: 'center', fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 12, color: TX.ink }}>{i+1}</div>
+                <div style={{ width: 28, height: 28, borderRadius: 8, background: ex.section === 'warmup' ? TX.volt : TX.lineSoft, display: 'grid', placeItems: 'center', fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 12, color: TX.ink }}>{badge}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 14 }}>{ex.name}</div>
                   <div style={{ fontFamily: 'Inter', fontSize: 11, color: TX.ink3, marginTop: 2 }}>
                     {ex.sets.length} sets · {ex.tag}
                   </div>
                 </div>
-                <Chip bg={TX.lineSoft} style={{ fontSize: 9 }}>{ex.sets[ex.sets.length-1].reps || 'AMRAP'} × {ex.sets[ex.sets.length-1].kg || '—'}{ex.sets[ex.sets.length-1].kg ? 'kg' : ''}</Chip>
+                <Chip bg={TX.lineSoft} style={{ fontSize: 9 }}>{lastChip(ex)}</Chip>
               </div>
-            ))}
-          </div>
+            );
+            const card = (rows) => <div style={{ background: TX.surface, border: `1px solid ${TX.line}`, borderRadius: 18, overflow: 'hidden' }}>{rows}</div>;
+            const subhead = (t) => <div style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: 800, letterSpacing: 0.8, textTransform: 'uppercase', color: TX.ink3, margin: '0 2px 6px' }}>{t}</div>;
+            return (
+              <React.Fragment>
+                {warm.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    {subhead(window.t('Warm-up'))}
+                    {card(warm.map((ex, i) => Row(ex, '~', i === 0)))}
+                  </div>
+                )}
+                <div style={{ marginTop: warm.length ? 14 : 10 }}>
+                  {warm.length > 0 && subhead(window.t('Workout'))}
+                  {card(work.map((ex, i) => Row(ex, i + 1, i === 0)))}
+                </div>
+              </React.Fragment>
+            );
+          })()}
         </div>
 
-        <div style={{ height: 110 }}/>
+        <div style={{ height: 16 }}/>
       </div>
+    </Screen>
 
-      <div style={{ position: 'absolute', left: 20, right: 20, bottom: 100 }}>
+      <div style={{ position: 'absolute', left: 20, right: 20, bottom: window.STRIDE_NATIVE ? 'calc(env(safe-area-inset-bottom) + 20px)' : 30, zIndex: 20 }}>
         <StrideButton variant="accent" block size="lg" icon="play" onClick={() => { setActiveMode(mode); go('active'); }}>
           {mode === 'timer' ? 'Start managed session' : 'Step through session'}
         </StrideButton>
       </div>
-    </Screen>
+    </>
   );
 }
 
@@ -389,20 +454,59 @@ function ActiveWorkoutScreen({ go, mode }) {
   // stable module global per instance, so the hook count stays consistent.
   const w = window.STRIDE_ACTIVE_WORKOUT || window.STRIDE_TODAYS_WORKOUT;
   if (!w) { setTimeout(function () { go('home'); }, 0); return null; }
-  const [exIdx, setExIdx] = React.useState(0);
-  const [setIdx, setSetIdx] = React.useState(0);
+  // Persist in-progress state so closing the app mid-workout never discards it.
+  // Keyed to the session so a different session won't restore stale progress.
+  const PROGRESS_KEY = 'stride_active_progress';
+  const saved = (() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(PROGRESS_KEY) || 'null');
+      if (s && w.id != null && s.sessionId === w.id) return s;
+    } catch (e) {}
+    return null;
+  })();
+  const [exIdx, setExIdx] = React.useState(saved ? (saved.exIdx || 0) : 0);
+  const [setIdx, setSetIdx] = React.useState(saved ? (saved.setIdx || 0) : 0);
   const [resting, setResting] = React.useState(false);
   const [restLeft, setRestLeft] = React.useState(0);
-  const [completedSets, setCompletedSets] = React.useState({}); // {exId-setIdx: {reps, kg}}
+  const [completedSets, setCompletedSets] = React.useState(saved ? (saved.completedSets || {}) : {}); // {exId-setIdx: {reps, kg}}
+  const [formRatings, setFormRatings] = React.useState(saved ? (saved.formRatings || {}) : {}); // {exId: 1–5 form score}
   const [paused, setPaused] = React.useState(false);
-  const [elapsed, setElapsed] = React.useState(8 * 60 + 14); // 8:14 mock
+  const [elapsed, setElapsed] = React.useState(saved && saved.elapsed != null ? saved.elapsed : 8 * 60 + 14); // 8:14 mock
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [coachOpen, setCoachOpen] = React.useState(false);
 
-  const ex = w.exercises[exIdx];
-  const curSet = ex.sets[setIdx];
+  // In-workout personal records: detect a new best right after a set is logged,
+  // auto-save it (linked to the library exercise), and celebrate it.
+  const [earnedPrs, setEarnedPrs] = React.useState([]); // [{exId,name,display,prev,isFirst,savedId}]
+  const [activePr, setActivePr] = React.useState(null); // the one currently celebrated
+  const prFired = React.useRef(new Set());              // once per exercise per session
+  const earnedRef = React.useRef([]);                   // sync mirror for STRIDE_LAST_PRS
+  React.useEffect(() => { earnedRef.current = []; window.STRIDE_LAST_PRS = []; }, []);
+
+  // Save progress (position, logged sets, form scores) on every meaningful change,
+  // so quitting mid-workout resumes exactly where you left off. Real sessions only.
+  const finishedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (w.id == null || finishedRef.current) return; // mock/demo, or already finished
+    try {
+      localStorage.setItem(PROGRESS_KEY, JSON.stringify({
+        sessionId: w.id, exIdx, setIdx, completedSets, formRatings, elapsed, ts: Date.now(),
+      }));
+    } catch (e) {}
+  }, [exIdx, setIdx, completedSets, formRatings]);
+
+  // Live coach edits can shrink the session mid-workout (remove_set /
+  // remove_exercise) — clamp the pointers before dereferencing, then sync state.
+  const exIdxC = Math.min(exIdx, w.exercises.length - 1);
+  const ex = w.exercises[exIdxC];
+  const setIdxC = Math.min(setIdx, ex.sets.length - 1);
+  React.useEffect(() => {
+    if (exIdxC !== exIdx) setExIdx(exIdxC);
+    if (setIdxC !== setIdx) setSetIdx(setIdxC);
+  }, [exIdxC, setIdxC, exIdx, setIdx]);
+  const curSet = ex.sets[setIdxC];
   const totalSets = w.exercises.reduce((s, e) => s + e.sets.length, 0);
-  const completedSoFar = w.exercises.slice(0, exIdx).reduce((s, e) => s + e.sets.length, 0) + setIdx;
+  const completedSoFar = w.exercises.slice(0, exIdxC).reduce((s, e) => s + e.sets.length, 0) + setIdxC;
   const progress = completedSoFar / totalSets;
 
   // Rest timer countdown
@@ -420,51 +524,113 @@ function ActiveWorkoutScreen({ go, mode }) {
     return () => clearTimeout(t);
   }, [elapsed, paused]);
 
-  const completeSet = () => {
-    const key = `${ex.id}-${setIdx}`;
-    setCompletedSets(prev => ({ ...prev, [key]: { reps: curSet.reps, kg: curSet.kg, ts: Date.now() } }));
+  const todayIso = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  // Detect + auto-save a personal record from the set just logged. No-op unless the
+  // exercise links to the catalogue (live sessions) and the set beats the prior best.
+  const detectPr = (curEx, setPrescription, entry) => {
+    if (!curEx || curEx.section === 'warmup' || (setPrescription && setPrescription.kind === 'Warm-up')) return; // ignore warm-ups
+    if (!Array.isArray(window.STRIDE_PRS)) return;               // PRs not loaded → avoid false "firsts"
+    if (prFired.current.has(curEx.id)) return;                   // already celebrated this exercise
+    const cand = window.strideDetectPr && window.strideDetectPr(curEx, entry, window.STRIDE_PRS);
+    if (!cand) return;
+    prFired.current.add(curEx.id);                               // optimistic — blocks double-tap re-fire
+    const pr = {
+      exercise_id: cand.exercise_id, label: curEx.name, metric_type: cand.metric_type,
+      metrics: cand.metrics, achieved_on: todayIso(), source: 'workout',
+      form_quality: formRatings[curEx.id] != null ? formRatings[curEx.id] : null,
+    };
+    const earned = {
+      exId: curEx.id, name: curEx.name, display: window.strideFormatPr(pr),
+      prev: cand.beats.old, isFirst: cand.isFirst, savedId: null, _pr: pr,
+    };
+    earnedRef.current = [...earnedRef.current, earned];
+    window.STRIDE_LAST_PRS = earnedRef.current;
+    setEarnedPrs(earnedRef.current);
+    setActivePr(earned);
+    if (window.__strideSavePr) window.__strideSavePr(pr).then(rec => {
+      if (rec && rec.id != null) { earned.savedId = rec.id; setEarnedPrs([...earnedRef.current]); }
+    }).catch(() => {});
+  };
+
+  const undoPr = (earned) => {
+    if (earned.savedId != null && window.__strideDeletePr) window.__strideDeletePr(earned.savedId).catch(() => {});
+    earnedRef.current = earnedRef.current.filter(e => e !== earned);
+    window.STRIDE_LAST_PRS = earnedRef.current;
+    setEarnedPrs(earnedRef.current);
+    prFired.current.delete(earned.exId);                         // let a later heavier set re-earn
+    setActivePr(a => (a === earned ? null : a));
+  };
+
+  // vals = the panel's edited { reps, kg } — log what the user actually did,
+  // not the prescription (falls back to it when nothing was edited).
+  const completeSet = (vals) => {
+    const key = `${ex.id}-${setIdxC}`;
+    const entry = {
+      reps: vals && vals.reps != null ? vals.reps : curSet.reps,
+      kg: vals && vals.kg != null ? vals.kg : curSet.kg,
+      band: vals && vals.band != null ? vals.band : (curSet.band != null ? curSet.band : null),
+      ts: Date.now(),
+    };
+    const nextLog = { ...completedSets, [key]: entry };
+    setCompletedSets(nextLog);
+    detectPr(ex, curSet, entry); // celebrate a PR before advancing (works in timer & manual modes)
     // Advance
-    if (setIdx < ex.sets.length - 1) {
+    if (setIdxC < ex.sets.length - 1) {
       if (mode === 'timer' && curSet.rest) {
         setResting(true);
         setRestLeft(curSet.rest);
       }
-      setSetIdx(setIdx + 1);
-    } else if (exIdx < w.exercises.length - 1) {
+      setSetIdx(setIdxC + 1);
+    } else if (exIdxC < w.exercises.length - 1) {
       if (mode === 'timer' && curSet.rest) {
         setResting(true);
         setRestLeft(curSet.rest);
       }
-      setExIdx(exIdx + 1);
+      setExIdx(exIdxC + 1);
       setSetIdx(0);
     } else {
       // done — mark today's training complete, then show the summary
-      try { localStorage.setItem('stride_today_done', '1'); } catch (e) {}
+      // Date-stamped so Home's done card self-expires tomorrow.
+      const iso = todayIso();
+      try { localStorage.setItem('stride_today_done', iso); } catch (e) {}
+      window.STRIDE_LAST_FORM_RATINGS = formRatings; // summary reads per-exercise form scores
+      window.STRIDE_LAST_SET_LOG = nextLog; // summary reads actual logged reps/kg
+      // Persist the log so Recap works after leaving/reopening the app.
+      try { localStorage.setItem('stride_last_log', JSON.stringify({ sessionId: w.id || null, log: nextLog, ratings: formRatings, ts: iso })); } catch (e) {}
+      finishedRef.current = true;
+      try { localStorage.removeItem(PROGRESS_KEY); } catch (e) {} // session finished — clear resume state
+      // Tell the backend it's done so Plan/Home stop showing the "start" card (even
+      // if the athlete closes the summary without saving RPE/notes).
+      if (window.__strideCompleteSession) window.__strideCompleteSession(w.id, {});
       go('summary');
     }
   };
 
   const goPrev = () => {
-    if (setIdx > 0) setSetIdx(setIdx - 1);
-    else if (exIdx > 0) {
-      setExIdx(exIdx - 1);
-      setSetIdx(w.exercises[exIdx - 1].sets.length - 1);
+    if (setIdxC > 0) setSetIdx(setIdxC - 1);
+    else if (exIdxC > 0) {
+      setExIdx(exIdxC - 1);
+      setSetIdx(w.exercises[exIdxC - 1].sets.length - 1);
     }
   };
   const goNext = () => {
-    if (setIdx < ex.sets.length - 1) setSetIdx(setIdx + 1);
-    else if (exIdx < w.exercises.length - 1) { setExIdx(exIdx + 1); setSetIdx(0); }
+    if (setIdxC < ex.sets.length - 1) setSetIdx(setIdxC + 1);
+    else if (exIdxC < w.exercises.length - 1) { setExIdx(exIdxC + 1); setSetIdx(0); }
   };
 
   // Undo / step back — returns to the previous set and clears its logged result,
   // so an accidental "Set complete" can be reversed.
-  const canGoBack = exIdx > 0 || setIdx > 0;
+  const canGoBack = exIdxC > 0 || setIdxC > 0;
   const goBack = () => {
     if (!canGoBack) return;
     setResting(false);
-    let pExIdx = exIdx, pSetIdx = setIdx;
-    if (setIdx > 0) pSetIdx = setIdx - 1;
-    else { pExIdx = exIdx - 1; pSetIdx = w.exercises[exIdx - 1].sets.length - 1; }
+    let pExIdx = exIdxC, pSetIdx = setIdxC;
+    if (setIdxC > 0) pSetIdx = setIdxC - 1;
+    else { pExIdx = exIdxC - 1; pSetIdx = w.exercises[exIdxC - 1].sets.length - 1; }
     const key = `${w.exercises[pExIdx].id}-${pSetIdx}`;
     setCompletedSets(prev => { const n = { ...prev }; delete n[key]; return n; });
     setExIdx(pExIdx);
@@ -479,18 +645,16 @@ function ActiveWorkoutScreen({ go, mode }) {
       <div style={{ padding: '14px 18px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <IconBtn icon="close" onClick={() => go('home')} bg="#222" color="#fff" border="#333" size={36}/>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>{mode === 'timer' ? 'Managed' : 'Step through'} · Push</div>
+          <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>{mode === 'timer' ? 'Managed' : 'Step through'}{w.kind ? ` · ${w.kind}` : ''}</div>
           <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 16, marginTop: 2 }}>{fmt(elapsed)}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {mode === 'timer' && (
-            <button onClick={() => setCoachOpen(true)} aria-label="Chat with coach" style={{
-              position: 'relative', width: 36, height: 36, borderRadius: 18, cursor: 'pointer',
-              background: TX.volt, border: 'none', display: 'grid', placeItems: 'center',
-            }}>
-              <StrideIcon name="chat" size={18} color={TX.ink}/>
-            </button>
-          )}
+          <button onClick={() => setCoachOpen(true)} aria-label="Chat with coach" style={{
+            position: 'relative', width: 36, height: 36, borderRadius: 18, cursor: 'pointer',
+            background: TX.volt, border: 'none', display: 'grid', placeItems: 'center',
+          }}>
+            <StrideIcon name="chat" size={18} color={TX.ink}/>
+          </button>
           <IconBtn icon={paused ? 'play' : 'pause'} onClick={() => setPaused(p => !p)} bg="#222" color="#fff" border="#333" size={36}/>
         </div>
       </div>
@@ -501,15 +665,15 @@ function ActiveWorkoutScreen({ go, mode }) {
           {w.exercises.map((e, i) => (
             <div key={i} style={{ flex: e.sets.length, marginRight: i < w.exercises.length - 1 ? 2 : 0, background: '#222', borderRadius: 2, overflow: 'hidden' }}>
               <div style={{
-                width: i < exIdx ? '100%' : (i === exIdx ? `${(setIdx / e.sets.length) * 100}%` : '0%'),
+                width: i < exIdxC ? '100%' : (i === exIdxC ? `${(setIdxC / e.sets.length) * 100}%` : '0%'),
                 height: '100%', background: TX.volt, transition: 'width .4s',
               }}/>
             </div>
           ))}
         </div>
         <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', fontFamily: 'Inter', fontSize: 11, color: '#888', fontWeight: 600 }}>
-          <span>Exercise {exIdx+1} / {w.exercises.length}</span>
-          <span>Set {setIdx+1} / {ex.sets.length}</span>
+          <span>Exercise {exIdxC+1} / {w.exercises.length}</span>
+          <span>Set {setIdxC+1} / {ex.sets.length}</span>
         </div>
       </div>
 
@@ -518,21 +682,32 @@ function ActiveWorkoutScreen({ go, mode }) {
         <RestPanel
           left={restLeft}
           total={curSet.rest}
-          next={ex.sets[setIdx]}
+          next={ex.sets[setIdxC]}
           nextEx={ex.name}
+          nextHold={strideIsHold(ex)}
           onSkip={() => { setResting(false); }}
           onAdd={() => setRestLeft(r => r + 15)}
           onSub={() => setRestLeft(r => Math.max(0, r - 15))}
           onUndo={canGoBack ? goBack : null}
+          pr={activePr}
+          onUndoPr={undoPr}
+          onDismissPr={() => setActivePr(null)}
         />
+      )}
+
+      {/* No-rest celebration (manual mode, or timer sets without a rest) */}
+      {!resting && activePr && (
+        <PrCelebration variant="toast" earned={activePr} onUndo={undoPr} onDismiss={() => setActivePr(null)}/>
       )}
 
       {!resting && (
         <ActiveExercisePanel
           ex={ex}
-          setIdx={setIdx}
+          setIdx={setIdxC}
           mode={mode}
           completedSets={completedSets}
+          formScore={formRatings[ex.id]}
+          onRateForm={(v) => setFormRatings((prev) => ({ ...prev, [ex.id]: v }))}
           onComplete={completeSet}
           onPrev={goPrev}
           onNext={goNext}
@@ -550,14 +725,55 @@ function ActiveWorkoutScreen({ go, mode }) {
 
       {coachOpen && window.Sheet && (
         <window.Sheet title="Coach" onClose={() => setCoachOpen(false)}>
-          <SessionCoachChat workout={w} onClose={() => setCoachOpen(false)}/>
+          <SessionCoachChat workout={w} ex={ex} exIdx={exIdxC} setIdx={setIdxC} onClose={() => setCoachOpen(false)}/>
         </window.Sheet>
       )}
     </div>
   );
 }
 
-function RestPanel({ left, total, next, nextEx, onSkip, onAdd, onSub, onUndo }) {
+// A just-earned personal record. `variant='banner'` sits inside the rest screen;
+// `variant='toast'` floats over the exercise panel (manual mode). Auto-dismisses.
+function PrCelebration({ earned, variant, onUndo, onDismiss }) {
+  React.useEffect(() => {
+    const t = setTimeout(onDismiss, 6000);
+    return () => clearTimeout(t);
+  }, [earned]);
+  if (!earned) return null;
+  const title = earned.isFirst ? window.t('First record') : window.t('New PR!');
+  const inner = (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      background: TX.volt, color: TX.ink, borderRadius: 16, padding: '12px 14px',
+      boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+    }}>
+      <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(0,0,0,0.14)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+        <StrideIcon name="flame" size={22} color={TX.ink}/>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.6 }}>{title}</div>
+        <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 15, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{earned.name} · {earned.display}</div>
+        {!earned.isFirst && earned.prev && (
+          <div style={{ fontFamily: 'Inter', fontSize: 11.5, fontWeight: 600, opacity: 0.75, marginTop: 1 }}>{window.t('Beat {old}', { old: earned.prev })}</div>
+        )}
+      </div>
+      <button onClick={() => onUndo(earned)} style={{
+        border: 'none', background: 'rgba(0,0,0,0.14)', color: TX.ink, cursor: 'pointer',
+        fontFamily: 'Inter', fontWeight: 800, fontSize: 12.5, padding: '8px 12px', borderRadius: 10, flexShrink: 0,
+      }}>{window.t('Undo')}</button>
+    </div>
+  );
+  if (variant === 'toast') {
+    return (
+      <div style={{ position: 'absolute', left: 14, right: 14, top: 'calc(70px + ' + (window.STRIDE_SAFE_TOP || 0) + 'px)', zIndex: 50 }}>
+        {inner}
+      </div>
+    );
+  }
+  return <div style={{ width: '100%' }}>{inner}</div>;
+}
+
+function RestPanel({ left, total, next, nextEx, nextHold, onSkip, onAdd, onSub, onUndo, pr, onUndoPr, onDismissPr }) {
   const pct = total ? left / total : 0;
   const stepBtn = { width: 60, height: 60, borderRadius: 14, background: '#222', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0 };
   return (
@@ -584,11 +800,13 @@ function RestPanel({ left, total, next, nextEx, onSkip, onAdd, onSub, onUndo }) 
           </div>
         </div>
 
+        {pr && <PrCelebration variant="banner" earned={pr} onUndo={onUndoPr} onDismiss={onDismissPr}/>}
+
         <div style={{ width: '100%', boxSizing: 'border-box', padding: '14px 16px', background: '#1a1a1a', borderRadius: 14, textAlign: 'left' }}>
           <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>Up next</div>
           <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 16, marginTop: 4 }}>{nextEx}</div>
           <div style={{ fontFamily: 'Inter', fontSize: 12, color: '#bbb', marginTop: 2 }}>
-            {next.kind} · {next.reps} reps · {next.kg || '—'}{next.kg ? ' kg' : ''}
+            {next.kind} · {next.reps} {nextHold ? 's hold' : 'reps'} · {next.kg || '—'}{next.kg ? ' kg' : ''}
           </div>
         </div>
       </div>
@@ -618,21 +836,70 @@ function RestPanel({ left, total, next, nextEx, onSkip, onAdd, onSub, onUndo }) 
   );
 }
 
-function ActiveExercisePanel({ ex, setIdx, mode, completedSets, onComplete, onPrev, onNext, onBack, canGoBack, onOpenDetails }) {
+// True when the exercise logs a timed hold (seconds), not repetitions. Prefers
+// the exercise's declared metrics list, then the API's metric_type, then the
+// library catalogue, then name keywords (oldest payloads).
+function strideIsHold(ex) {
+  if (ex && Array.isArray(ex.metrics)) return ex.metrics.indexOf('seconds') !== -1;
+  if (ex && ex.metricType) return ex.metricType === 'hold';
+  const n = String((ex && ex.name) || ex || '').trim().toLowerCase();
+  const hit = (window.STRIDE_EXERCISES || []).find((e) => String(e.name || '').toLowerCase() === n);
+  if (hit) return hit.metricType === 'hold';
+  return /(hold|lever|planche|l-sit|plank|handstand|flag|hang)/.test(n);
+}
+
+// Band-assisted / band-resisted work (band front lever, banded planche, band
+// rotations…) additionally logs the band's pull (kg) in the stretched position.
+function strideIsBanded(ex) {
+  if (ex && Array.isArray(ex.metrics)) return ex.metrics.indexOf('band_kg') !== -1;
+  return /band/i.test(String((ex && ex.name) || ex || ''));
+}
+
+// A single, always-positive "volume" for a session that works for lifting AND
+// calisthenics. Reps-equivalent, over completed working sets only (from `log`):
+//   hold  → seconds / 3   (a ~3s isometric ≈ one rep of work; seconds live in log.reps)
+//   else  → reps × (1 + kg / bodyweight)  (bodyweight reps = reps; weighted counts more)
+function strideSessionVolume(w, log, bw) {
+  const bodyweight = bw && bw > 0 ? bw : 75;
+  let vol = 0;
+  (w.exercises || []).forEach((ex) => {
+    if (ex.section === 'warmup') return; // warm-up group doesn't count toward volume
+    const hold = strideIsHold(ex);
+    ex.sets.forEach((st, i) => {
+      if (st.kind === 'Warm-up') return;
+      const l = log[`${ex.id}-${i}`];
+      if (!l) return;
+      if (hold) vol += (l.reps || 0) / 3; // reps field carries seconds for holds
+      else vol += (l.reps || 0) * (1 + (l.kg || 0) / bodyweight);
+    });
+  });
+  return Math.round(vol);
+}
+
+function ActiveExercisePanel({ ex, setIdx, mode, completedSets, formScore, onRateForm, onComplete, onPrev, onNext, onBack, canGoBack, onOpenDetails }) {
   const curSet = ex.sets[setIdx];
+  const isHold = strideIsHold(ex);
+  const isBanded = strideIsBanded(ex);
+  // Pure-bodyweight exercises (metrics === ['reps']) don't log weight at all.
+  const hasWeight = Array.isArray(ex.metrics) ? ex.metrics.indexOf('weight_kg') !== -1 : true;
   const [reps, setReps] = React.useState(curSet.reps);
   const [kg, setKg] = React.useState(curSet.kg);
+  const [band, setBand] = React.useState(curSet.band || 0);
 
   React.useEffect(() => {
-    setReps(curSet.reps);
-    setKg(curSet.kg);
+    // Re-visiting an already-logged set (undo / step back) restores what was
+    // logged, so the steppers don't silently reset to the prescription.
+    const logged = completedSets[`${ex.id}-${setIdx}`];
+    setReps(logged && logged.reps != null ? logged.reps : curSet.reps);
+    setKg(logged && logged.kg != null ? logged.kg : curSet.kg);
+    setBand(logged && logged.band != null ? logged.band : (curSet.band || 0));
   }, [setIdx, ex.id]);
 
   return (
     <div style={{ padding: '20px 18px 24px', display: 'flex', flexDirection: 'column', height: 'calc(100% - 92px)' }}>
       {/* Exercise header — tap to open details */}
       <div style={{ textAlign: 'center', padding: '8px 0' }}>
-        <Chip bg="#ffffff14" ink={TX.volt} color={TX.volt} dot style={{ textTransform: 'uppercase' }}>{curSet.kind}</Chip>
+        <Chip bg="#ffffff14" ink={TX.volt} color={TX.volt} dot style={{ textTransform: 'uppercase' }}>{ex.section === 'warmup' ? window.t('Warm-up') : curSet.kind}</Chip>
         <button onClick={onOpenDetails} style={{
           display: 'block', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0,
         }}>
@@ -646,9 +913,19 @@ function ActiveExercisePanel({ ex, setIdx, mode, completedSets, onComplete, onPr
 
       {/* Middle — reps & kg steppers, centered */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 16 }}>
-        <NumberStepper label="Reps" value={reps} unit={curSet.kind === 'AMRAP' ? 'AMRAP' : ''} onChange={setReps}/>
-        <div style={{ width: 120, height: 1, background: '#222' }}/>
-        <NumberStepper label="kg" value={kg} step={2.5} onChange={setKg}/>
+        <NumberStepper label={isHold ? 'Seconds' : 'Reps'} value={reps} unit={curSet.kind === 'AMRAP' ? (isHold ? 'MAX' : 'AMRAP') : ''} onChange={setReps}/>
+        {(hasWeight || isBanded) && <div style={{ width: 120, height: 1, background: '#222' }}/>}
+        {isBanded && hasWeight ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+            <NumberStepper label="kg" value={kg} step={2.5} onChange={setKg} size={40}/>
+            <div style={{ width: 1, height: 56, background: '#222' }}/>
+            <NumberStepper label="Band kg" value={band} step={2.5} onChange={setBand} size={40}/>
+          </div>
+        ) : isBanded ? (
+          <NumberStepper label="Band kg" value={band} step={2.5} onChange={setBand}/>
+        ) : hasWeight ? (
+          <NumberStepper label="kg" value={kg} step={2.5} onChange={setKg}/>
+        ) : null}
       </div>
 
       {/* Coach note */}
@@ -659,9 +936,33 @@ function ActiveExercisePanel({ ex, setIdx, mode, completedSets, onComplete, onPr
         </div>
       )}
 
+      {/* Form score 1–5 — rate this exercise's technique, tap again to clear */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', background: '#1a1a1a', borderRadius: 12, marginBottom: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>Form</div>
+          <div style={{ fontFamily: 'Inter', fontSize: 11, color: formScore ? TX.volt : '#666', fontWeight: 600, marginTop: 1 }}>
+            {formScore ? `${formScore}/5` : 'Rate 1–5'}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[1, 2, 3, 4, 5].map((v) => {
+            const sel = formScore === v;
+            const lit = formScore != null && v <= formScore;
+            return (
+              <button key={v} onClick={() => onRateForm(sel ? null : v)} aria-label={`Form score ${v}`} style={{
+                width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
+                background: sel ? TX.volt : '#222',
+                color: sel ? TX.ink : (lit ? TX.volt : '#888'),
+                fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 14,
+              }}>{v}</button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Sets timeline — directly above the controls */}
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>Sets · reps × kg</div>
+        <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>{isHold ? 'Sets · secs × kg' : 'Sets · reps × kg'}</div>
         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
           {ex.sets.map((s, i) => {
             const done = completedSets[`${ex.id}-${i}`];
@@ -685,7 +986,7 @@ function ActiveExercisePanel({ ex, setIdx, mode, completedSets, onComplete, onPr
                   <span style={{ fontSize: 10.5, letterSpacing: 0.2 }}>AMRAP</span>
                 ) : (
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 14 }}>{s.reps}</div>
+                    <div style={{ fontSize: 14 }}>{s.reps}{isHold ? 's' : ''}</div>
                     {s.kg ? <div style={{ fontSize: 9, fontWeight: 700, opacity: 0.65, marginTop: 1 }}>{s.kg}kg</div> : null}
                   </div>
                 )}
@@ -706,7 +1007,7 @@ function ActiveExercisePanel({ ex, setIdx, mode, completedSets, onComplete, onPr
               <StrideIcon name="arrowLeft" size={26} color="#fff"/>
             </button>
           )}
-          <StrideButton variant="volt" size="lg" icon="check" style={{ flex: 1 }} onClick={onComplete}>
+          <StrideButton variant="volt" size="lg" icon="check" style={{ flex: 1 }} onClick={() => onComplete({ reps, kg, band: isBanded ? band : null })}>
             Set complete
           </StrideButton>
         </div>
@@ -718,7 +1019,7 @@ function ActiveExercisePanel({ ex, setIdx, mode, completedSets, onComplete, onPr
           }}>
             <StrideIcon name="arrowLeft" size={26} color="#fff"/>
           </button>
-          <StrideButton variant="volt" size="lg" icon="check" style={{ flex: 1 }} onClick={onComplete}>Log set</StrideButton>
+          <StrideButton variant="volt" size="lg" icon="check" style={{ flex: 1 }} onClick={() => onComplete({ reps, kg, band: isBanded ? band : null })}>Log set</StrideButton>
           <button onClick={onNext} style={{
             width: 60, height: 60, borderRadius: 14, background: '#222', border: 'none',
             display: 'grid', placeItems: 'center', cursor: 'pointer',
@@ -731,7 +1032,7 @@ function ActiveExercisePanel({ ex, setIdx, mode, completedSets, onComplete, onPr
   );
 }
 
-function NumberStepper({ label, value, onChange, step = 1, unit }) {
+function NumberStepper({ label, value, onChange, step = 1, unit, size = 64 }) {
   return (
     <div style={{ textAlign: 'center' }}>
       <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: 700, marginBottom: 6 }}>{label}</div>
@@ -741,7 +1042,7 @@ function NumberStepper({ label, value, onChange, step = 1, unit }) {
         }}>
           <StrideIcon name="minus" size={16} color="#fff"/>
         </button>
-        <div style={{ minWidth: 72, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 64, color: '#fff', letterSpacing: -2, lineHeight: 1 }}>
+        <div style={{ minWidth: size >= 64 ? 72 : 52, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: size, color: '#fff', letterSpacing: size >= 64 ? -2 : -1, lineHeight: 1 }}>
           {unit || (value % 1 === 0 ? value : value.toFixed(1))}
         </div>
         <button onClick={() => onChange(value + step)} style={{
@@ -832,7 +1133,7 @@ function ActiveExerciseDetail({ ex }) {
             <div style={{ width: 26, height: 26, borderRadius: 13, background: TX.ink, color: '#fff', display: 'grid', placeItems: 'center', fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 11, flexShrink: 0 }}>{i + 1}</div>
             <div style={{ flex: 1, fontFamily: 'Inter', fontSize: 12.5, fontWeight: 700, color: s.kind === 'Working' ? TX.ink : TX.ink3 }}>{s.kind}</div>
             <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13, color: TX.ink }}>
-              {s.kind === 'AMRAP' ? 'AMRAP' : `${s.reps} reps${s.kg ? ` · ${s.kg} kg` : ''}`}
+              {s.kind === 'AMRAP' ? (strideIsHold(ex) ? 'MAX hold' : 'AMRAP') : `${s.reps} ${strideIsHold(ex) ? 's hold' : 'reps'}${s.kg ? ` · ${s.kg} kg` : ''}${s.band ? ` · ${s.band} kg band` : ''}`}
             </div>
             {s.rest ? <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: TX.ink3, width: 44, textAlign: 'right' }}>{Math.floor(s.rest / 60)}:{String(s.rest % 60).padStart(2, '0')}</div> : <div style={{ width: 44 }}/>}
           </div>
@@ -842,35 +1143,47 @@ function ActiveExerciseDetail({ ex }) {
   );
 }
 
-// In-session coach chat slideover — adjust the session on the fly.
-function SessionCoachChat({ workout, onClose }) {
+// In-session coach chat slideover — LIVE adjustments to the running session.
+// The real coach stages proposals (set_load/add_set/remove_set/remove_exercise/
+// swap_exercise); Apply refreshes the active workout in place via the bridge.
+function SessionCoachChat({ workout, ex, exIdx, setIdx, onClose }) {
   const persona = window.STRIDE_CURRENT_PERSONA || { name: 'Coach' };
-  const totalSets = workout.exercises.reduce((s, e) => s + e.sets.length, 0);
-  const QUICK = [
-    { label: 'Increase volume', reply: `Done — I added a 4th working set to your two main lifts. That's ${totalSets + 2} sets total now. Keep RPE under 8.` },
-    { label: 'Go lighter today', reply: "No problem. I dropped the top sets by ~10% and bumped reps to keep the stimulus. Listen to your body." },
-    { label: 'Add a set', reply: "Added one more working set to the current exercise. I'll watch your rest so the session doesn't run long." },
-    { label: 'Cut it short', reply: "Trimming to the essentials — I'll drop the two isolation lifts at the end. You'll still hit the main movements." },
-    { label: 'Swap an exercise', reply: "Sure — which one feels off? I can sub in a similar movement that fits your equipment." },
-  ];
+  const live = !!window.__strideCoach;
   const [msgs, setMsgs] = React.useState([
-    { who: 'ai', text: `You're mid-session — ${workout.exercises.length} exercises, ${totalSets} sets. Want me to adjust anything? I can change volume, load, or swap a movement.` },
+    { who: 'ai', text: window.t('You’re mid-session — tell me what to adjust and I’ll stage it for your confirmation. e.g. “go lighter here”, “add a set”, “cut it short”.') },
   ]);
   const [input, setInput] = React.useState('');
+  const [typing, setTyping] = React.useState(false);
   const scrollRef = React.useRef(null);
 
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [msgs]);
+  }, [msgs, typing]);
 
-  const send = (text, reply) => {
-    const t = (text || '').trim();
+  const QUICK = ['Go lighter here', 'Add a set here', 'Swap this exercise', 'Cut it short'];
+
+  const send = (text) => {
+    const t = (text || input).trim();
     if (!t) return;
     setMsgs((m) => [...m, { who: 'me', text: t }]);
     setInput('');
-    setTimeout(() => {
-      setMsgs((m) => [...m, { who: 'ai', text: reply || "Got it — I've updated today's session. You'll see the change on your next set." }]);
-    }, 550);
+    setTyping(true);
+    if (!live) {
+      // Browser demo without the API — canned acknowledgement only.
+      setTimeout(() => {
+        setTyping(false);
+        setMsgs((m) => [...m, { who: 'ai', text: "Got it — I've updated today's session. You'll see the change on your next set." }]);
+      }, 550);
+      return;
+    }
+    // Anchor "here"/"this exercise" to where the athlete actually is.
+    const prefix = window.t('[Mid-workout: {title} — on {ex}, exercise {i}/{n}, set {j}/{m}] ', {
+      title: workout.title || workout.block || '', ex: ex.name,
+      i: exIdx + 1, n: workout.exercises.length, j: setIdx + 1, m: ex.sets.length,
+    });
+    window.__strideCoach.send(prefix + t)
+      .then((reply) => { setTyping(false); setMsgs((m) => [...m, reply]); })
+      .catch(() => { setTyping(false); setMsgs((m) => [...m, { who: 'ai', text: window.t('Sorry — I couldn’t reach your coach just now.') }]); });
   };
 
   return (
@@ -878,27 +1191,17 @@ function SessionCoachChat({ workout, onClose }) {
       {/* Quick actions */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 14 }}>
         {QUICK.map((q) => (
-          <button key={q.label} onClick={() => send(q.label, q.reply)} style={{
+          <button key={q} onClick={() => send(q)} style={{
             border: `1px solid ${TX.line}`, background: TX.surface, color: TX.ink, cursor: 'pointer',
             borderRadius: 999, padding: '8px 13px', fontFamily: 'Inter', fontSize: 12.5, fontWeight: 600,
-          }}>{q.label}</button>
+          }}>{q}</button>
         ))}
       </div>
 
-      {/* Thread */}
-      <div ref={scrollRef} style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 260, overflowY: 'auto', marginBottom: 12 }}>
-        {msgs.map((m, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: m.who === 'me' ? 'flex-end' : 'flex-start' }}>
-            <div style={{
-              maxWidth: '82%', padding: '10px 13px', borderRadius: 16,
-              borderBottomRightRadius: m.who === 'me' ? 4 : 16,
-              borderBottomLeftRadius: m.who === 'me' ? 16 : 4,
-              background: m.who === 'me' ? TX.ink : TX.lineSoft,
-              color: m.who === 'me' ? '#fff' : TX.ink,
-              fontFamily: 'Inter', fontSize: 13.5, lineHeight: 1.45,
-            }}>{m.who === 'me' ? m.text : window.renderCoachMarkdown(m.text)}</div>
-          </div>
-        ))}
+      {/* Thread — ChatBubble renders proposal cards with Apply/Dismiss */}
+      <div ref={scrollRef} style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 300, overflowY: 'auto', marginBottom: 12 }}>
+        {msgs.map((m, i) => <ChatBubble key={i} m={m} onCard={() => {}}/>)}
+        {typing && <ChatBubble m={{ who: 'ai', text: '…', typing: true }}/>}
       </div>
 
       {/* Composer */}
@@ -921,27 +1224,51 @@ function SessionCoachChat({ workout, onClose }) {
 // SUMMARY — post-workout
 // ────────────────────────────────────────────────────────────────────
 function SummaryScreen({ go }) {
-  const w = window.STRIDE_TODAYS_WORKOUT;
+  // The session that was actually PLAYED — not today's scheduled one. Running a
+  // different session (e.g. yesterday's Pull) must summarise that session.
+  const w = window.STRIDE_ACTIVE_WORKOUT || window.STRIDE_TODAYS_WORKOUT;
   const [feel, setFeel] = React.useState(4);
   const [rpe, setRpe] = React.useState(7);
-  const [notes, setNotes] = React.useState('Bench felt smooth, no shoulder pain. Last set of dips was tough.');
+  const [notes, setNotes] = React.useState('');
+  React.useEffect(() => { if (!w) go('home'); }, []);
+  if (!w) return null;
+
+  // The in-memory log dies with the JS context — Recap from Home after
+  // reopening the app restores it from the persisted copy (same session only).
+  if (!window.STRIDE_LAST_SET_LOG) {
+    try {
+      const saved = JSON.parse(localStorage.getItem('stride_last_log') || 'null');
+      if (saved && saved.sessionId != null && saved.sessionId === w.id) {
+        window.STRIDE_LAST_SET_LOG = saved.log || {};
+        window.STRIDE_LAST_FORM_RATINGS = saved.ratings || {};
+      }
+    } catch (e) {}
+  }
+
+  // Real numbers from what was logged during the session.
+  const log = window.STRIDE_LAST_SET_LOG || {};
+  const lastPrs = window.STRIDE_LAST_PRS || []; // records earned this session (read-only recap)
+  const totalSets = w.exercises.reduce((s, e) => s + e.sets.length, 0);
+  const doneSets = Object.keys(log).length;
+  // Unified session "volume" (reps-equivalent) — meaningful for calisthenics + lifting,
+  // never a dead "0 kg" for a bodyweight/holds day.
+  const volume = strideSessionVolume(w, log, (window.STRIDE_USER || {}).weightKg);
 
   return (
+    <>
     <Screen>
-      <StrideHeader title="Nice work." kicker="Push · Strength A · 64 min" right={<IconBtn icon="close" onClick={() => go('home')}/>}/>
+      <StrideHeader title="Nice work." kicker={`${w.title || w.block || ''}${w.durationMin ? ` · ${w.durationMin} min` : ''}`} right={<IconBtn icon="close" onClick={() => go('home')}/>}/>
       <div style={{ padding: '0 20px' }}>
         <Card dark style={{ padding: 22, position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', right: -50, top: -40, width: 180, height: 180, borderRadius: 180, background: TX.volt, opacity: 0.18, filter: 'blur(40px)' }}/>
           <div style={{ position: 'relative' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-              <span style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 72, color: '#fff', letterSpacing: -3, lineHeight: 1 }}>6,420</span>
-              <span style={{ fontFamily: 'Inter', fontSize: 14, color: '#aaa', fontWeight: 700 }}>kg moved</span>
+              <span style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 72, color: '#fff', letterSpacing: -3, lineHeight: 1 }}>{volume.toLocaleString('en-US')}</span>
+              <span style={{ fontFamily: 'Inter', fontSize: 14, color: '#aaa', fontWeight: 700 }}>{window.t('volume')}</span>
             </div>
-            <div style={{ fontFamily: 'Inter', fontSize: 12, color: '#aaa', marginTop: 4 }}>+540 kg vs last push session</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 18, paddingTop: 14, borderTop: '1px solid #222' }}>
-              <Stat label="Sets done" value="14/14"/>
-              <Stat label="Avg RPE" value="7.5" muted/>
-              <Stat label="PRs" value="1"/>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginTop: 18, paddingTop: 14, borderTop: '1px solid #222' }}>
+              <Stat label="Sets done" value={`${doneSets}/${totalSets}`}/>
+              <Stat label="Exercises" value={w.exercises.length}/>
             </div>
           </div>
         </Card>
@@ -971,6 +1298,27 @@ function SummaryScreen({ go }) {
             </div>
           </Card>
         </div>
+
+        {/* Records earned this session */}
+        {lastPrs.length > 0 && (
+          <div style={{ marginTop: 22 }}>
+            <SectionHeader title="Records set today"/>
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {lastPrs.map((pr, i) => (
+                <Card key={i} style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 12, background: TX.volt, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                    <StrideIcon name="flame" size={22} color={TX.ink}/>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 14, color: TX.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pr.name}</div>
+                    <div style={{ fontFamily: 'Inter', fontSize: 12, color: TX.ink3, marginTop: 1 }}>{pr.display}</div>
+                  </div>
+                  <Chip bg={TX.volt} style={{ fontSize: 9 }}>{pr.isFirst ? window.t('First record') : window.t('New PR!')}</Chip>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Per-exercise summary */}
         <div style={{ marginTop: 22 }}>
@@ -1002,30 +1350,47 @@ function SummaryScreen({ go }) {
           }}/>
         </div>
 
-        <div style={{ height: 100 }}/>
+        <div style={{ height: 16 }}/>
       </div>
+    </Screen>
 
-      <div style={{ position: 'absolute', left: 20, right: 20, bottom: 100 }}>
-        <StrideButton variant="primary" block size="lg" icon="check" onClick={() => go('home')}>
+      <div style={{ position: 'absolute', left: 20, right: 20, bottom: window.STRIDE_NATIVE ? 'calc(env(safe-area-inset-bottom) + 20px)' : 30, zIndex: 20 }}>
+        <StrideButton variant="primary" block size="lg" icon="check" onClick={() => {
+          const done = window.__strideCompleteSession
+            ? window.__strideCompleteSession(w.id, { rpe, notes: notes.trim() || null })
+            : Promise.resolve();
+          Promise.resolve(done).then(() => go('home')).catch(() => go('home'));
+        }}>
           Save session
         </StrideButton>
       </div>
-    </Screen>
+    </>
   );
 }
 
 function ExerciseSummaryRow({ ex }) {
+  const form = (window.STRIDE_LAST_FORM_RATINGS || {})[ex.id];
+  const isHold = strideIsHold(ex);
+  const log = window.STRIDE_LAST_SET_LOG || {};
+  const anyLogged = ex.sets.some((s, i) => log[`${ex.id}-${i}`]);
   return (
     <Card style={{ padding: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 14 }}>{ex.name}</div>
-        <Chip bg={TX.green + '18'} ink={TX.green} dot color={TX.green}>Logged</Chip>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {form ? <Chip bg={TX.ink} ink={TX.volt}>{window.t('Form {n}/5', { n: form })}</Chip> : null}
+          {anyLogged
+            ? <Chip bg={TX.green + '18'} ink={TX.green} dot color={TX.green}>Logged</Chip>
+            : <Chip bg={TX.lineSoft} ink={TX.ink3}>Not logged</Chip>}
+        </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {ex.sets.map((s, i) => {
-          // mock actual reps: subtract 0-2 from target for working sets
-          const actualReps = s.kind === 'AMRAP' ? 18 : Math.max(s.reps - (i === ex.sets.length - 1 ? 1 : 0), s.reps);
-          const matched = actualReps === s.reps || s.kind === 'AMRAP';
+          // actual logged values from the session (falls back to prescription)
+          const logged = (window.STRIDE_LAST_SET_LOG || {})[`${ex.id}-${i}`];
+          const actualReps = logged && logged.reps != null ? logged.reps : s.reps;
+          const actualKg = logged && logged.kg != null ? logged.kg : s.kg;
+          const matched = s.kind === 'AMRAP' || !s.reps || actualReps >= s.reps;
           return (
             <div key={i} style={{
               display: 'grid', gridTemplateColumns: '20px 1fr 1fr 56px', gap: 8, alignItems: 'center',
@@ -1035,11 +1400,13 @@ function ExerciseSummaryRow({ ex }) {
               <span style={{ fontFamily: 'Inter', fontSize: 11, color: TX.ink3, fontWeight: 700 }}>{i+1}</span>
               <span style={{ fontFamily: 'Inter', fontSize: 11, color: TX.ink3 }}>{s.kind}</span>
               <span style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13 }}>
-                {s.kind === 'AMRAP' ? actualReps : s.reps} × {s.kg || '—'}{s.kg ? ' kg' : ''}
+                {actualReps}{isHold ? 's' : ''} × {actualKg || '—'}{actualKg ? ' kg' : ''}{logged && logged.band ? ` · ${logged.band % 1 === 0 ? logged.band : logged.band.toFixed(1)} kg band` : ''}
               </span>
-              {matched
-                ? <Chip bg={TX.green + '18'} ink={TX.green} style={{ fontSize: 9 }}>{s.kind === 'AMRAP' ? 'PR' : 'On target'}</Chip>
-                : <Chip bg={TX.amber + '18'} ink={TX.amber} style={{ fontSize: 9 }}>-{s.reps - actualReps} rep</Chip>}
+              {!logged
+                ? <Chip bg={TX.lineSoft} ink={TX.ink3} style={{ fontSize: 9 }}>Skipped</Chip>
+                : matched
+                  ? <Chip bg={TX.green + '18'} ink={TX.green} style={{ fontSize: 9 }}>On target</Chip>
+                  : <Chip bg={TX.amber + '18'} ink={TX.amber} style={{ fontSize: 9 }}>-{s.reps - actualReps}{isHold ? 's' : ' rep'}</Chip>}
             </div>
           );
         })}
@@ -1051,8 +1418,28 @@ function ExerciseSummaryRow({ ex }) {
 // ────────────────────────────────────────────────────────────────────
 // AI CHAT
 // ────────────────────────────────────────────────────────────────────
+// Case- and accent-insensitive matching for the chat search — "trening" must
+// find "tréning". Fold for comparisons; the pattern builder keeps <mark>
+// highlighting working on the accented original text.
+function strideFoldText(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+const STRIDE_ACCENT_VARIANTS = { a: 'aáä', c: 'cč', d: 'dď', e: 'eé', i: 'ií', l: 'lĺľ', n: 'nň', o: 'oóô', r: 'rŕ', s: 'sš', t: 'tť', u: 'uú', y: 'yý', z: 'zž' };
+function strideAccentPattern(q) {
+  return String(q).split('').map((ch) => {
+    const base = strideFoldText(ch);
+    if (/^[a-z]$/.test(base)) return '[' + (STRIDE_ACCENT_VARIANTS[base] || base) + ']';
+    return ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }).join('');
+}
+
+function strideChatGreeting() {
+  return { who: 'ai', text: window.t("Morning. I'm your coach — ask me to adjust today's session (go lighter, swap a lift, add a set) or flag a niggle and I'll program around it.") };
+}
+
 function ChatScreen({ go, persona }) {
   const [messages, setMessages] = React.useState(window.STRIDE_CHAT_SEED);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
   const [input, setInput] = React.useState(() => {
     const pre = window.__stridePrefillChat;
     window.__stridePrefillChat = null;
@@ -1068,10 +1455,11 @@ function ChatScreen({ go, persona }) {
     if (searching && searchRef.current) searchRef.current.focus();
   }, [searching]);
 
-  const q = query.trim().toLowerCase();
+  const q = strideFoldText(query.trim());
   const filtered = q
-    ? messages.filter((m) => (m.text || '').toLowerCase().includes(q)
-        || (m.cards || []).some((c) => `${c.title} ${c.subtitle || ''}`.toLowerCase().includes(q)))
+    ? messages.filter((m) => strideFoldText(m.text).includes(q)
+        || (m.cards || []).some((c) => strideFoldText(`${c.title} ${c.subtitle || ''}`).includes(q))
+        || (m.proposals || []).some((p) => strideFoldText(`${p.text} ${p.why || ''}`).includes(q)))
     : messages;
   const matchCount = q ? filtered.length : 0;
 
@@ -1110,7 +1498,7 @@ function ChatScreen({ go, persona }) {
         <>
           <IconBtn icon="search" onClick={() => setSearching(s => !s)}
             bg={searching ? TX.ink : TX.surface} color={searching ? '#fff' : TX.ink} border={searching ? TX.ink : TX.line}/>
-          <IconBtn icon="sliders"/>
+          <IconBtn icon="history" onClick={() => setHistoryOpen(true)}/>
         </>
       }/>
 
@@ -1141,7 +1529,7 @@ function ChatScreen({ go, persona }) {
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 100px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 176px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filtered.map((m, i) => <ChatBubble key={i} m={m} onCard={openCard} highlight={q}/>)}
           {typing && !q && <ChatBubble m={{ who: 'ai', text: '…', typing: true }}/>}
@@ -1202,7 +1590,111 @@ function ChatScreen({ go, persona }) {
           <window.SessionDetail session={sheetSession} go={go} persona={persona} onClose={() => setSheetSession(null)}/>
         </window.Sheet>
       )}
+
+      {historyOpen && window.Sheet && (
+        <window.Sheet title={window.t('Conversations')} onClose={() => setHistoryOpen(false)}>
+          <ConversationHistory
+            onOpen={(msgs) => { setMessages(msgs.length ? msgs : [strideChatGreeting()]); setQuery(''); setHistoryOpen(false); }}
+            onNew={() => { setMessages([strideChatGreeting()]); setQuery(''); setHistoryOpen(false); }}
+            onDeletedActive={() => setMessages([strideChatGreeting()])}/>
+        </window.Sheet>
+      )}
     </Screen>
+  );
+}
+
+// The AI tab's thread switcher: every coach conversation (general + per-block),
+// open one, start a fresh one, or delete old ones (two-tap confirm on the trash).
+function ConversationHistory({ onOpen, onNew, onDeletedActive }) {
+  const [convs, setConvs] = React.useState(null); // null = loading
+  const [busyId, setBusyId] = React.useState(null);
+  const [confirmId, setConfirmId] = React.useState(null);
+  const coach = window.__strideCoach;
+
+  React.useEffect(() => {
+    if (!coach) { setConvs([]); return; }
+    coach.listConversations().then(setConvs).catch(() => setConvs([]));
+  }, []);
+
+  const openConv = (c) => {
+    if (busyId || !coach) return;
+    setBusyId(c.id);
+    coach.openConversation(c.id)
+      .then((res) => onOpen(res.messages))
+      .catch(() => setBusyId(null));
+  };
+  const createConv = () => {
+    if (busyId || !coach) return;
+    setBusyId('new');
+    coach.newConversation().then(() => onNew()).catch(() => setBusyId(null));
+  };
+  const deleteConv = (c) => {
+    if (busyId || !coach) return;
+    if (confirmId !== c.id) { setConfirmId(c.id); return; }
+    const wasActive = coach.activeConversationId && coach.activeConversationId() === c.id;
+    setBusyId(c.id);
+    coach.deleteConversation(c.id)
+      .then(() => {
+        setConvs((list) => (list || []).filter((x) => x.id !== c.id));
+        setConfirmId(null); setBusyId(null);
+        if (wasActive) onDeletedActive();
+      })
+      .catch(() => setBusyId(null));
+  };
+
+  const fmtWhen = (iso) => {
+    if (!iso) return '';
+    const locale = (localStorage.getItem('stride_lang') === 'sk') ? 'sk-SK' : 'en-US';
+    return new Date(iso).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 8 }}>
+      <button onClick={createConv} disabled={!!busyId} style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        padding: '12px 14px', borderRadius: 14, border: 'none', background: TX.ink, color: '#fff',
+        fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13.5, cursor: 'pointer', opacity: busyId === 'new' ? 0.6 : 1,
+      }}>
+        <StrideIcon name="plus" size={16} color="#fff"/>{window.t('New conversation')}
+      </button>
+
+      {convs === null && (
+        <div style={{ textAlign: 'center', padding: '18px 0', fontFamily: 'Inter', fontSize: 13, color: TX.ink3 }}>…</div>
+      )}
+      {convs !== null && convs.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '18px 0', fontFamily: 'Inter', fontSize: 13, color: TX.ink3 }}>
+          {window.t('No conversations yet.')}
+        </div>
+      )}
+
+      {(convs || []).map((c) => (
+        <div key={c.id} style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: TX.surface, border: `1px solid ${TX.line}`, borderRadius: 14, padding: '11px 12px',
+          opacity: busyId === c.id ? 0.6 : 1,
+        }}>
+          <div onClick={() => openConv(c)} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}>
+            <div style={{ fontFamily: 'Inter', fontSize: 9.5, fontWeight: 800, color: TX.ink3, textTransform: 'uppercase', letterSpacing: 0.7 }}>
+              {c.block_id ? window.t('Training block') : window.t('General')}{c.last_message_at ? ' · ' + fmtWhen(c.last_message_at) : ''}
+            </div>
+            <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 14, color: TX.ink, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {c.block_name || c.title || window.t('Conversation')}
+            </div>
+          </div>
+          {confirmId === c.id ? (
+            <button onClick={() => deleteConv(c)} disabled={!!busyId} style={{
+              flexShrink: 0, padding: '8px 12px', borderRadius: 10, border: 'none', background: '#C0392B', color: '#fff',
+              fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12, cursor: 'pointer',
+            }}>{window.t('Delete?')}</button>
+          ) : (
+            <button onClick={() => deleteConv(c)} aria-label="Delete conversation" disabled={!!busyId} style={{
+              flexShrink: 0, width: 34, height: 34, borderRadius: 10, border: `1px solid ${TX.line}`, background: TX.surface,
+              display: 'grid', placeItems: 'center', cursor: 'pointer',
+            }}><StrideIcon name="trash" size={15} color={TX.ink3}/></button>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1213,9 +1705,9 @@ function ChatBubble({ m, onCard, highlight }) {
     // AI replies carry light markdown; the search-highlight path stays plain.
     if (!highlight && !isMe && txt) return window.renderCoachMarkdown(txt);
     if (!highlight || !txt) return txt;
-    const parts = String(txt).split(new RegExp(`(${highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig'));
+    const parts = String(txt).split(new RegExp(`(${strideAccentPattern(highlight)})`, 'ig'));
     return parts.map((p, i) =>
-      p.toLowerCase() === highlight.toLowerCase()
+      strideFoldText(p) === strideFoldText(highlight)
         ? <mark key={i} style={{ background: TX.accent, color: isMe ? TX.ink : TX.ink, borderRadius: 3, padding: '0 1px' }}>{p}</mark>
         : <React.Fragment key={i}>{p}</React.Fragment>
     );
@@ -1247,8 +1739,8 @@ function ChatBubble({ m, onCard, highlight }) {
         </div>
       )}
       {!isMe && m.proposals && m.proposals.length > 0 && (
-        <div style={{ marginTop: (m.text || hasCards) ? 8 : 0, maxWidth: '92%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {m.proposals.map((p) => <ProposalCard key={p.id} p={p}/>)}
+        <div style={{ marginTop: (m.text || hasCards) ? 8 : 0, maxWidth: '92%', width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <ProposalGroup proposals={m.proposals}/>
         </div>
       )}
     </div>
@@ -1261,48 +1753,132 @@ const PROPOSAL_ICONS = {
   set_load: 'sliders', swap: 'sliders', add_set: 'plus',
   reorder: 'sliders', scale_load: 'trend', regenerate_session: 'sparkles', edit: 'edit',
 };
-function ProposalCard({ p }) {
-  const [status, setStatus] = React.useState(p.status || 'proposed');
-  const [busy, setBusy] = React.useState(false);
+function ProposalCard({ p, status, busy, error, onApply, onDismiss }) {
   const icon = PROPOSAL_ICONS[p.operation] || 'sparkles';
   const done = status === 'applied';
-
-  const act = (fn, next) => {
-    if (busy || !window.__strideCoach || !fn) return;
-    setBusy(true);
-    Promise.resolve(fn(p.id))
-      .then(() => { setStatus(next); setBusy(false); })
-      .catch(() => setBusy(false));
-  };
+  const stale = status === 'stale';
   if (status === 'dismissed') return null;
 
   return (
-    <div style={{ width: '100%', background: TX.surface, border: `1px solid ${done ? TX.accent : TX.line}`, borderRadius: 16, padding: 13 }}>
+    <div style={{ width: '100%', background: TX.surface, border: `1px solid ${done ? TX.accent : TX.line}`, borderRadius: 16, padding: 13, opacity: stale ? 0.65 : 1 }}>
       <div style={{ display: 'flex', gap: 11 }}>
         <div style={{ width: 34, height: 34, borderRadius: 11, background: done ? TX.accent + '18' : TX.lineSoft, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-          <StrideIcon name={done ? 'check' : icon} size={16} color={done ? TX.accent : TX.ink2}/>
+          <StrideIcon name={done ? 'check' : (stale ? 'x' : icon)} size={16} color={done ? TX.accent : TX.ink2}/>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: 'Inter', fontSize: 9.5, fontWeight: 800, color: done ? TX.accent : TX.ink3, textTransform: 'uppercase', letterSpacing: 0.7 }}>
-            {done ? window.t('Applied') : window.t('Proposed change')}{p.target ? ' · ' + p.target : ''}
+            {done ? window.t('Applied') : (stale ? window.t('No longer available') : window.t('Proposed change'))}{p.target ? ' · ' + p.target : ''}
           </div>
           <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13.5, color: TX.ink, lineHeight: 1.25, marginTop: 3 }}>{p.text}</div>
           {p.why && <div style={{ fontFamily: 'Inter', fontSize: 11.5, color: TX.ink3, marginTop: 4, lineHeight: 1.4 }}>{p.why}</div>}
         </div>
       </div>
-      {!done && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 11 }}>
-          <button onClick={() => act(window.__strideCoach && window.__strideCoach.dismissProposal, 'dismissed')} disabled={busy} style={{
-            flex: 'none', padding: '8px 16px', borderRadius: 11, border: `1px solid ${TX.line}`, background: TX.surface, color: TX.ink2,
-            fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12.5, cursor: 'pointer',
-          }}>{window.t('Dismiss')}</button>
-          <button onClick={() => act(window.__strideCoach && window.__strideCoach.applyProposal, 'applied')} disabled={busy} style={{
-            flex: 1, padding: '8px 16px', borderRadius: 11, border: 'none', background: TX.ink, color: '#fff',
-            fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12.5, cursor: 'pointer', opacity: busy ? 0.6 : 1,
-          }}>{busy ? window.t('Applying…') : window.t('Apply')}</button>
-        </div>
+      {!done && !stale && (
+        <>
+          <div style={{ display: 'flex', gap: 8, marginTop: 11 }}>
+            <button onClick={onDismiss} disabled={busy} style={{
+              flex: 'none', padding: '8px 16px', borderRadius: 11, border: `1px solid ${TX.line}`, background: TX.surface, color: TX.ink2,
+              fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12.5, cursor: 'pointer',
+            }}>{window.t('Dismiss')}</button>
+            <button onClick={onApply} disabled={busy} style={{
+              flex: 1, padding: '8px 16px', borderRadius: 11, border: 'none', background: TX.ink, color: '#fff',
+              fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12.5, cursor: 'pointer', opacity: busy ? 0.6 : 1,
+            }}>{busy ? window.t('Applying…') : window.t('Apply')}</button>
+          </div>
+          {error && (
+            <div style={{ fontFamily: 'Inter', fontSize: 11.5, color: '#C0392B', marginTop: 7 }}>
+              {window.t('That didn’t go through — check your connection and try again.')}
+            </div>
+          )}
+        </>
       )}
     </div>
+  );
+}
+
+// One coach reply's staged changes as a unit: each card confirms individually,
+// and once more than one is still pending, bulk "Apply all" / "Dismiss all"
+// controls appear (dismiss a few, then apply the rest in one tap). Failed calls
+// surface on the card — a 409 means the change was resolved elsewhere (stale).
+function ProposalGroup({ proposals }) {
+  // Legacy replies can carry the same staged edit many times (the tool loop
+  // used to re-stage it) — collapse to one card per distinct edit, preferring
+  // an instance that is already applied.
+  const unique = React.useMemo(() => {
+    const bySig = new Map();
+    proposals.forEach((p) => {
+      const sig = `${p.operation || ''}|${p.target || ''}|${p.text || ''}`;
+      const prev = bySig.get(sig);
+      if (!prev || (prev.status !== 'applied' && p.status === 'applied')) bySig.set(sig, p);
+    });
+    return [...bySig.values()];
+  }, [proposals]);
+
+  const [statuses, setStatuses] = React.useState(() => {
+    const s = {};
+    unique.forEach((p) => { s[p.id] = p.status || 'proposed'; });
+    return s;
+  });
+  const [errors, setErrors] = React.useState({});
+  const [busy, setBusy] = React.useState(null); // proposal id | '*' (bulk)
+
+  const settle = (id, st) => setStatuses((s) => ({ ...s, [id]: st }));
+  const fail = (id, err) => {
+    if (err && err.status === 409) settle(id, 'stale');
+    else setErrors((e) => ({ ...e, [id]: true }));
+  };
+
+  const act = (p, kind) => {
+    const coach = window.__strideCoach;
+    if (busy || !coach) return;
+    setBusy(p.id);
+    setErrors((e) => ({ ...e, [p.id]: false }));
+    const call = kind === 'apply' ? coach.applyProposal : coach.dismissProposal;
+    Promise.resolve(call(p.id))
+      .then(() => settle(p.id, kind === 'apply' ? 'applied' : 'dismissed'))
+      .catch((err) => fail(p.id, err))
+      .then(() => setBusy(null));
+  };
+
+  const pending = unique.filter((p) => statuses[p.id] === 'proposed');
+  const bulk = (kind) => {
+    const coach = window.__strideCoach;
+    if (busy || !coach || pending.length === 0) return;
+    setBusy('*');
+    setErrors({});
+    const ids = pending.map((p) => p.id);
+    const call = kind === 'apply' ? coach.applyProposals : coach.dismissProposals;
+    Promise.resolve(call(ids))
+      .then((out) => {
+        ((kind === 'apply' ? out.applied : out.dismissed) || []).forEach((id) => settle(id, kind === 'apply' ? 'applied' : 'dismissed'));
+        (out.failed || []).forEach((f) => fail(f.id, f));
+      })
+      .catch(() => {})
+      .then(() => setBusy(null));
+  };
+
+  const visible = unique.filter((p) => statuses[p.id] !== 'dismissed');
+  if (visible.length === 0) return null;
+
+  return (
+    <>
+      {visible.map((p) => (
+        <ProposalCard key={p.id} p={p} status={statuses[p.id]} busy={busy === p.id || busy === '*'} error={!!errors[p.id]}
+          onApply={() => act(p, 'apply')} onDismiss={() => act(p, 'dismiss')}/>
+      ))}
+      {pending.length > 1 && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => bulk('dismiss')} disabled={!!busy} style={{
+            flex: 'none', padding: '9px 16px', borderRadius: 12, border: `1px solid ${TX.line}`, background: TX.surface, color: TX.ink2,
+            fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12.5, cursor: 'pointer',
+          }}>{window.t('Dismiss all')}</button>
+          <button onClick={() => bulk('apply')} disabled={!!busy} style={{
+            flex: 1, padding: '9px 16px', borderRadius: 12, border: 'none', background: TX.accent, color: '#fff',
+            fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12.5, cursor: 'pointer', opacity: busy === '*' ? 0.6 : 1,
+          }}>{busy === '*' ? window.t('Applying…') : window.t('Apply all ({n})', { n: pending.length })}</button>
+        </div>
+      )}
+    </>
   );
 }
 

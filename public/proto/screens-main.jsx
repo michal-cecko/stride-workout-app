@@ -22,9 +22,11 @@ function HomeScreen({ go, persona }) {
   const todaySession = (window.STRIDE_WEEK_PLAN || []).find(d => d.status === 'today');
   // null = closed, 'view' = detail sheet, 'edit' = editor sheet
   const [sessionSheet, setSessionSheet] = React.useState(null);
-  // Daily check-in (energy)
-  const checkInKey = 'stride_checkin_2026-06-01';
-  const checkInNoteKey = 'stride_checkin_note_2026-06-01';
+  // Daily check-in (energy) — keyed by the REAL date so it resets each morning
+  // and the coach-poke context can read today's energy.
+  const _ciIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const checkInKey = 'stride_checkin_' + _ciIso;
+  const checkInNoteKey = 'stride_checkin_note_' + _ciIso;
   const [energy, setEnergy] = React.useState(() => {
     try { const v = localStorage.getItem(checkInKey); return v ? Number(v) : null; } catch (e) { return null; }
   });
@@ -32,15 +34,15 @@ function HomeScreen({ go, persona }) {
     try { return localStorage.getItem(checkInNoteKey) || ''; } catch (e) { return ''; }
   });
   const [checkInOpen, setCheckInOpen] = React.useState(false);
-  // Whether today's training has been completed (set when a session finishes).
-  const [doneToday, setDoneToday] = React.useState(() => {
-    try { return localStorage.getItem('stride_today_done') === '1'; } catch (e) { return false; }
-  });
-  const startAnotherSession = () => {
-    try { localStorage.removeItem('stride_today_done'); } catch (e) {}
-    setDoneToday(false);
-    go('generate');
-  };
+  // Whether today's training has been completed. Server-derived (today's session
+  // came back status 'done') OR the local date-stamped flag written when a session
+  // finishes — the flag self-expires tomorrow. Never cleared by navigation.
+  const todayISO = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const doneFlag = (() => {
+    try { return localStorage.getItem('stride_today_done') === todayISO; } catch (e) { return false; }
+  })();
+  const doneToday = (w && w.status === 'done') || doneFlag;
+  const startAnotherSession = () => go('generate');
   const commitEnergy = (k) => {
     setEnergy(k);
     try { localStorage.setItem(checkInKey, String(k)); } catch (e) {}
@@ -95,11 +97,11 @@ function HomeScreen({ go, persona }) {
           <Card dark style={{ padding: 22, position: 'relative', overflow: 'hidden' }}>
             <div style={{ position: 'absolute', right: -40, top: -40, width: 170, height: 170, borderRadius: 170, background: TT.volt, filter: 'blur(44px)', opacity: 0.3 }}/>
             <div style={{ position: 'relative' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
                 <div style={{ width: 30, height: 30, borderRadius: 15, background: TT.volt, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                   <StrideIcon name="check" size={18} color={TT.ink} strokeWidth={3}/>
                 </div>
-                <Chip bg="#ffffff14" ink="#fff" dot color={TT.volt}>All done today</Chip>
+                <span style={{ fontFamily: 'Inter', fontSize: 12, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', color: TT.volt }}>All done today</span>
               </div>
               <h2 style={{ margin: '0 0 8px', fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 34, lineHeight: 0.98, letterSpacing: -1.4, color: '#fff' }}>
                 CRUSHED IT, {u.name.toUpperCase()}.
@@ -107,9 +109,9 @@ function HomeScreen({ go, persona }) {
               <p style={{ margin: 0, fontFamily: 'Inter', fontSize: 13.5, lineHeight: 1.5, color: '#bbb' }}>
                 Today's training is in the books — every set logged. Rest up and recover, or stack on a bonus session if you've still got it in you.
               </p>
-              <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-                <StrideButton variant="volt" size="md" icon="plus" onClick={startAnotherSession} style={{ flex: 1 }}>Add another session</StrideButton>
-                <StrideButton variant="ghost" size="md" onClick={() => go('summary')} style={{ flex: 'none', color: '#fff', borderColor: '#ffffff33' }}>Recap</StrideButton>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18 }}>
+                <StrideButton variant="volt" size="md" icon="plus" block onClick={startAnotherSession}>Add another session</StrideButton>
+                <StrideButton variant="ghost" size="md" block onClick={() => go('summary')} style={{ color: '#fff', borderColor: '#ffffff33' }}>Recap</StrideButton>
               </div>
             </div>
           </Card>
@@ -187,7 +189,7 @@ function HomeScreen({ go, persona }) {
           <DailyCheckIn level={energy} note={energyNote} onOpen={() => setCheckInOpen(true)} go={go}/>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-            <QuickTile icon="sparkles" label="Generate today's session" sub={window.t('with {name}', { name: persona.name })} onClick={() => go('generate')} bgColor={TT.volt} inkColor={TT.ink}/>
+            <QuickTile icon="sparkles" label={doneToday ? 'Add session' : 'Generate today\'s session'} sub={window.t('with {name}', { name: persona.name })} onClick={() => go('generate')} bgColor={TT.volt} inkColor={TT.ink}/>
             <QuickTile icon="bandage" label="Log how you feel" sub="Soreness · injuries · sleep" onClick={() => go('injuries')} bgColor={TT.surface} inkColor={TT.ink}/>
           </div>
         )}
@@ -483,22 +485,34 @@ function AILogButton({ scopes, scopeLabel, persona, dark = false }) {
   const [open, setOpen] = React.useState(false);
   const entries = (window.STRIDE_AI_LOG || []).filter((e) => scopes.includes(e.scope));
   const trainer = (persona && persona.name) || 'Coach';
+  // Badge = UNREAD changes: opening the log marks everything seen (persisted),
+  // so the count only reappears when the coach makes new changes.
+  const seenKey = 'stride_ailog_seen_' + scopes.join('-');
+  const [seen, setSeen] = React.useState(() => {
+    try { return parseInt(localStorage.getItem(seenKey) || '0', 10) || 0; } catch (e) { return 0; }
+  });
+  const unread = Math.max(0, entries.length - seen);
+  const openLog = () => {
+    setOpen(true);
+    setSeen(entries.length);
+    try { localStorage.setItem(seenKey, String(entries.length)); } catch (e) {}
+  };
   return (
     <>
-      <button onClick={() => setOpen(true)} aria-label="Coach activity log" style={{
+      <button onClick={openLog} aria-label="Coach activity log" style={{
         position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         width: 40, height: 40, borderRadius: 12, cursor: 'pointer',
         background: dark ? '#ffffff14' : TT.surface,
         border: `1px solid ${dark ? '#ffffff22' : TT.line}`,
       }}>
         <StrideIcon name="sparkles" size={19} color={dark ? '#fff' : TT.ink}/>
-        {entries.length > 0 && (
+        {unread > 0 && (
           <span style={{
             position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, padding: '0 4px',
             borderRadius: 8, background: TT.accent, color: '#fff',
             fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 10,
             display: 'grid', placeItems: 'center', border: `2px solid ${dark ? TT.ink : TT.bg}`,
-          }}>{entries.length}</span>
+          }}>{unread}</span>
         )}
       </button>
       {open && (
@@ -519,8 +533,8 @@ function AILogBody({ entries, scopes, scopeLabel, trainer }) {
           <StrideIcon name="sparkles" size={18} color={TT.ink}/>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 14, lineHeight: 1.15 }}>What {trainer} changed</div>
-          <div style={{ fontFamily: 'Inter', fontSize: 11.5, opacity: 0.7, marginTop: 2 }}>Scoped to {scopeLabel} · {entries.length} {entries.length === 1 ? 'change' : 'changes'}</div>
+          <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 14, lineHeight: 1.15 }}>{window.t('What {name} changed', { name: trainer })}</div>
+          <div style={{ fontFamily: 'Inter', fontSize: 11.5, opacity: 0.7, marginTop: 2 }}>{window.t('Scoped to {scope}', { scope: window.t(scopeLabel) })} · {window.t(entries.length === 1 ? '{n} change' : '{n} changes', { n: entries.length })}</div>
         </div>
       </div>
 
@@ -620,13 +634,46 @@ function ToggleSeg({ value, onChange, options }) {
 
 function PlanWeekView({ week, go, persona }) {
   const [openSession, setOpenSession] = React.useState(null);
+  // Paged by calendar week (Mon–Sun); swipe or chevrons move the window. `dir`
+  // remembers which way the last page turn went so the incoming week slides in
+  // from that side (see the stridePage* keyframes) instead of snapping.
+  const [offset, setOffset] = React.useState(0);
+  const [dir, setDir] = React.useState(0);
+  const page = (d) => { setDir(d); setOffset((o) => o + d); };
+  const now = new Date();
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) + offset * 7);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  const inWindow = (s) => {
+    if (!s.scheduledDate) return offset === 0; // undated (mock) rows belong to "this week" only
+    const d = new Date(s.scheduledDate + 'T00:00:00');
+    return d >= monday && d <= sunday;
+  };
+  const rows = (week || []).filter(inWindow).slice()
+    .sort((a, b) => String(a.scheduledDate || '').localeCompare(String(b.scheduledDate || '')));
+  const swipe = useSwipeNav(() => page(-1), () => page(1));
+  const fmtD = (d) => d.toLocaleDateString(window.strideLocale(), { day: 'numeric', month: 'short' });
+  const label = offset === 0 ? window.t('This week') : `${fmtD(monday)} – ${fmtD(sunday)}`;
 
   return (
-    <div style={{ padding: '0 20px' }}>
-      {week.map((d, i) => {
-        if (d.status === 'today') return <TodayRow key={i} d={d} go={go} onOpen={() => setOpenSession(d)}/>;
-        return <WeekRow key={i} d={d} last={i === week.length - 1} onOpen={() => setOpenSession(d)}/>;
-      })}
+    <div style={{ padding: '0 20px' }} {...swipe}>
+      {/* ‹ Week › header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <IconBtn icon="chevL" size={32} onClick={() => page(-1)}/>
+        <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 15, color: TT.ink }}>{label}</div>
+        <IconBtn icon="chevR" size={32} onClick={() => page(1)}/>
+      </div>
+
+      <div key={offset} style={{ animation: dir ? `${dir > 0 ? 'stridePageNext' : 'stridePagePrev'} .3s cubic-bezier(.22,.61,.36,1) both` : 'none' }}>
+        {rows.length === 0 && (
+          <Card style={{ padding: 18 }}>
+            <div style={{ fontFamily: 'Inter', fontSize: 13, color: TT.ink3 }}>Nothing planned this week yet.</div>
+          </Card>
+        )}
+        {rows.map((d, i) => {
+          if (d.status === 'today') return <TodayRow key={i} d={d} go={go} onOpen={() => setOpenSession(d)}/>;
+          return <WeekRow key={i} d={d} last={i === rows.length - 1} onOpen={() => setOpenSession(d)}/>;
+        })}
+      </div>
       <div style={{ paddingTop: 18 }}>
         <StrideButton variant="ghost" block icon="plus">Add session</StrideButton>
       </div>
@@ -775,7 +822,7 @@ function WeekRow({ d, last, onOpen }) {
         }}>{d.title}</div>
         {skipped ? (
           <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.amber, fontWeight: 600, marginTop: 4 }}>
-            {window.t('Skipped ·')} {d.skipReason}
+            {d.skipReason ? `${window.t('Skipped ·')} ${d.skipReason}` : window.t('Skipped')}
           </div>
         ) : (
           <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, marginTop: 4 }}>
@@ -789,13 +836,40 @@ function WeekRow({ d, last, onOpen }) {
   );
 }
 
+// Canned per-outcome trainer note. Every line goes through window.t so the
+// SK dictionary can localise it (the template string IS the dictionary key;
+// values are substituted after translation).
+// A localized, natural day phrase for a session: "today"/"tomorrow"/"on Friday"
+// in EN, "dnes"/"zajtra"/"v piatok" in SK — never the raw "Fri" abbreviation.
+function strideDayPhrase(s) {
+  const sk = window.readStrideLanguage() === 'sk';
+  const iso = s.scheduledDate;
+  if (iso) {
+    const d = new Date(iso + 'T00:00:00');
+    const now = new Date();
+    const diff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+    if (diff === 0) return sk ? 'dnes' : 'today';
+    if (diff === 1) return sk ? 'zajtra' : 'tomorrow';
+    if (sk) return ['v nedeľu', 'v pondelok', 'v utorok', 'v stredu', 'vo štvrtok', 'v piatok', 'v sobotu'][d.getDay()];
+    return 'on ' + d.toLocaleDateString('en-US', { weekday: 'long' });
+  }
+  // No date (mock/legacy) — best effort from the abbreviation.
+  return s.day || '';
+}
+
 function aiSessionNote(personaKey, s) {
   const k = ['coach','calm','nerd'].includes(personaKey) ? personaKey : 'calm';
   const rest = s.kind === 'Rest';
-  const vol = (s.volume / 1000).toFixed(1);
-  const reason = (s.skipReason || '').toLowerCase();
+  const v = {
+    kind: s.kind, day: strideDayPhrase(s), duration: s.duration,
+    vol: (s.volume / 1000).toFixed(1),
+    volKg: (s.volume || 0).toLocaleString(window.strideLocale()),
+    reason: (s.skipReason || '').toLowerCase(),
+  };
   let bucket;
-  if (s.status === 'skipped') bucket = 'skipped';
+  // An auto-skip (nightly roll, no reason logged) reads differently from a
+  // deliberate skip the athlete explained — don't render a reason-shaped hole.
+  if (s.status === 'skipped') bucket = s.skipReason ? 'skipped' : 'skippedAuto';
   else if (s.status === 'today') bucket = 'today';
   else if (s.status === 'planned') bucket = 'planned';
   else if (rest) bucket = 'recovery';
@@ -803,40 +877,39 @@ function aiSessionNote(personaKey, s) {
 
   const lines = {
     good: {
-      coach: `${vol} tonnes moved and bar speed held to the last rep. That's the standard now — match it next ${s.kind}.`,
-      calm: `Really clean work, Alex. Volume and effort landed right where we planned, and your top sets looked controlled. Recover well and we'll build from here.`,
-      nerd: `${s.volume.toLocaleString()} kg tonnage @ RPE 7.4 — within 3% of target. Velocity steady across working sets, so you're cleared for +2.5 kg next cycle.`,
-      buddy: `Yesss that's the one 🙌 ${vol} tonnes and your top sets flew. Go refuel — you earned it.`,
+      coach: window.t(`{vol} tonnes moved and bar speed held to the last rep. That's the standard now — match it next {kind}.`, v),
+      calm: window.t(`Really clean work. Volume and effort landed right where we planned, and your top sets looked controlled. Recover well and we'll build from here.`, v),
+      nerd: window.t(`{volKg} kg tonnage @ RPE 7.4 — within 3% of target. Velocity steady across working sets, so you're cleared for +2.5 kg next cycle.`, v),
     },
     bad: {
-      coach: `Rough one — but you showed up and logged it, and that counts. We trim 5% off ${s.kind} next time and rebuild bar speed. No quitting.`,
-      calm: `That felt heavier than usual, and that's okay — sleep, stress and fuel all read into a session. Let's deload slightly next ${s.kind} and reset.`,
-      nerd: `Bar velocity down ~12% vs baseline, RPE overshot target by ~1.5 — reads like recovery debt. Recommend −5% load and an extra rest day before next ${s.kind}.`,
-      buddy: `Hey, not every day's a PR and that is totally fine 💪 You still got the work in. Next ${s.kind} we run it back lighter and snappier.`,
+      coach: window.t(`Rough one — but you showed up and logged it, and that counts. We trim 5% off {kind} next time and rebuild bar speed. No quitting.`, v),
+      calm: window.t(`That felt heavier than usual, and that's okay — sleep, stress and fuel all read into a session. Let's deload slightly next {kind} and reset.`, v),
+      nerd: window.t(`Bar velocity down ~12% vs baseline, RPE overshot target by ~1.5 — reads like recovery debt. Recommend −5% load and an extra rest day before next {kind}.`, v),
     },
     skipped: {
-      coach: `You called it on the ${reason} — smart, not soft. Protecting a joint beats grinding through it. We reschedule and hit it fresh.`,
-      calm: `Skipping for ${reason} was the right call — listening to your body is training too. I've kept the volume; let's slot it later this week.`,
-      nerd: `Missed session logged. ${s.skipReason} flagged — pausing was the lower-risk option (injury cost far exceeds one session). Weekly target auto-adjusts.`,
-      buddy: `No guilt, okay? ${reason} is a real reason and you made the grown-up call 🙌 We'll catch this one up when you're good.`,
+      coach: window.t(`You called it on the {reason} — smart, not soft. Protecting a joint beats grinding through it. We reschedule and hit it fresh.`, v),
+      calm: window.t(`Skipping for {reason} was the right call — listening to your body is training too. I've kept the volume; let's slot it later this week.`, v),
+      nerd: window.t(`Missed session logged. {reason} flagged — pausing was the lower-risk option (injury cost far exceeds one session). Weekly target auto-adjusts.`, v),
+    },
+    skippedAuto: {
+      coach: window.t(`This one got away — happens. What matters is the next one: the work goes back on the board and you show up for it.`, v),
+      calm: window.t(`The day ended before this session happened — no stress, one missed day doesn't undo your progress. We simply pick it up from here.`, v),
+      nerd: window.t(`Missed session logged automatically — the day ended with it untouched. One skip has a negligible effect on the block; the weekly target auto-adjusts.`, v),
     },
     recovery: {
-      coach: `Recovery logged. Good — you can't grind every day. Mobility is part of the plan, not a day off. Back to work tomorrow.`,
-      calm: `Lovely — recovery days are where the adaptation actually happens. Mobility and an easy walk is exactly right for today.`,
-      nerd: `Active recovery complete. Z2 + mobility supports parasympathetic recovery between hard sessions — expect HRV to read higher tomorrow.`,
-      buddy: `Rest day done right 🧘 This is the secret sauce — you'll feel it on your next lift.`,
+      coach: window.t(`Recovery logged. Good — you can't grind every day. Mobility is part of the plan, not a day off. Back to work tomorrow.`, v),
+      calm: window.t(`Lovely — recovery days are where the adaptation actually happens. Mobility and an easy walk is exactly right for today.`, v),
+      nerd: window.t(`Active recovery complete. Z2 + mobility supports parasympathetic recovery between hard sessions — expect HRV to read higher tomorrow.`, v),
     },
     today: {
-      coach: `Push day. ${s.duration} minutes, no wasted sets. You're 12 sessions from a 100 kg bench — today's a brick in that wall. Get under the bar.`,
-      calm: `Your ${s.kind} session is ready when you are — about ${s.duration} minutes. We dropped bench to 82.5×6 off last week's RPE. Warm up well and we'll go.`,
-      nerd: `Today: ${s.kind}, ~${s.duration} min, target RPE 7.5. Bench 82.5×6×3 projects a +1.2% 1RM nudge this block. Volume's primed — execute.`,
-      buddy: `Push day baby 👋 ~${s.duration} mins of good stuff. That bench is gonna feel great today — let's gooo.`,
+      coach: window.t(`{kind} day. {duration} minutes, no wasted sets. Every session is a brick in the wall — get to work.`, v),
+      calm: window.t(`Your {kind} session is ready when you are — about {duration} minutes. Warm up well and we'll go.`, v),
+      nerd: window.t(`Today: {kind}, ~{duration} min, target RPE 7.5. Volume's primed — execute.`, v),
     },
     planned: {
-      coach: `On the board for ${s.day}. Come in ready — glance at the openers tonight so tomorrow there's no thinking, just lifting.`,
-      calm: `This one's coming up ${s.day}. Nothing to do yet — keep eating and sleeping well and it'll be ready when you are.`,
-      nerd: `Scheduled ${s.day}. Load/volume set from current block periodization; I'll finalize working weights from your prior session's RPE.`,
-      buddy: `${s.day}'s gonna be fun 😎 Nothing to stress about now — just show up fresh and we'll handle the rest.`,
+      coach: window.t(`On the board for {day}. Come in ready — glance at the openers tonight so there's no thinking on the day, just lifting.`, v),
+      calm: window.t(`This one's coming up {day}. Nothing to do yet — keep eating and sleeping well and it'll be ready when you are.`, v),
+      nerd: window.t(`Scheduled {day}. Load/volume set from current block periodization; I'll finalize working weights from your prior session's RPE.`, v),
     },
   };
   return lines[bucket][k];
@@ -935,6 +1008,20 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
       .then(() => go('active-config')).catch(() => go('active-config'));
   };
 
+  // "I'll do it tomorrow": push this session a day out (also revives a skipped
+  // one). The bridge refreshes the globals; closing re-renders onto fresh data.
+  const postponeSession = () => {
+    if (!s.id || !window.__strideSessionAction) { onClose(); return; }
+    window.__strideSessionAction(s.id, 'postpone').then(onClose).catch(onClose);
+  };
+
+  // "Do it again" vs "Do it now": has this exact training (same title) ever
+  // been completed before, anywhere in the plan history?
+  const doneBefore = [(window.STRIDE_WEEK_PLAN || [])]
+    .concat((window.STRIDE_BLOCKS || []).map((b) => b.sessions || []))
+    .flat()
+    .some((x) => x.status === 'done' && x.title === s.title && x.id !== s.id);
+
   // Show THIS session's REAL exercises. If the summary already carries them
   // (today's workout), map them; otherwise load /sessions/{id}. Only fall back to
   // the kind sample if there's genuinely nothing to load.
@@ -942,14 +1029,14 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
   // return between hooks ("edit" mode) crashes React with a hooks-order error
   // (the original black-screen on "Edit").
   const [liveEx, setLiveEx] = React.useState(() =>
-    (s.exercises && s.exercises.length) ? s.exercises.map(liveExToDisplay) : null
+    (s.exercises && s.exercises.length) ? s.exercises.filter(e => e.section !== 'warmup').map(liveExToDisplay) : null
   );
   React.useEffect(() => {
     if ((!s.exercises || !s.exercises.length) && s.id && window.__strideLoadSession) {
       window.__strideLoadSession(s.id)
         .then(() => {
           const w = window.STRIDE_ACTIVE_WORKOUT;
-          if (w && w.exercises && w.exercises.length) setLiveEx(w.exercises.map(liveExToDisplay));
+          if (w && w.exercises && w.exercises.length) setLiveEx(w.exercises.filter(e => e.section !== 'warmup').map(liveExToDisplay));
         })
         .catch(() => {});
     }
@@ -1023,19 +1110,29 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
         </button>
       )}
 
-      {/* Skip reflection */}
+      {/* Skip reflection — only render what was actually logged. An auto-skip
+          (nightly roll) has no reason/mood/note; show one honest line instead
+          of a card of empty cells. */}
       {skipped && (
         <div style={{ marginBottom: 16 }}>
           <SectionHeader title="Why I skipped"/>
           <div style={{ marginTop: 10, background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 14, overflow: 'hidden' }}>
-            <div style={{ display: 'flex' }}>
-              <SkipCell label="Reason" value={s.skipReason}/>
-              <div style={{ width: 1, background: TT.lineSoft }}/>
-              <SkipCell label="How I felt" value={s.mood}/>
-            </div>
-            <div style={{ padding: '12px 14px', borderTop: `1px solid ${TT.lineSoft}`, fontFamily: 'Inter', fontSize: 13, lineHeight: 1.55, color: TT.ink2 }}>
-              {s.skipNote}
-            </div>
+            {(s.skipReason || s.mood) ? (
+              <div style={{ display: 'flex' }}>
+                <SkipCell label="Reason" value={s.skipReason || '—'}/>
+                {s.mood && <div style={{ width: 1, background: TT.lineSoft }}/>}
+                {s.mood && <SkipCell label="How I felt" value={s.mood}/>}
+              </div>
+            ) : (
+              <div style={{ padding: '12px 14px', fontFamily: 'Inter', fontSize: 13, lineHeight: 1.55, color: TT.ink2 }}>
+                {window.t('No reason was logged — the day ended and this session was skipped automatically.')}
+              </div>
+            )}
+            {s.skipNote && (
+              <div style={{ padding: '12px 14px', borderTop: `1px solid ${TT.lineSoft}`, fontFamily: 'Inter', fontSize: 13, lineHeight: 1.55, color: TT.ink2 }}>
+                {s.skipNote}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1091,32 +1188,39 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
         </div>
       )}
 
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 8 }}>
+      {/* Actions — two 50/50 secondary buttons on top, one full-width primary below */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {today && (
           <>
-            <StrideButton variant="ghost" icon="edit" style={{ flex: 1 }} onClick={() => setMode('edit')}>Edit</StrideButton>
-            <StrideButton variant="volt" icon="play" iconRight="arrowRight" style={{ flex: 1.4 }} onClick={startSession}>Start</StrideButton>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <StrideButton variant="ghost" icon="edit" style={{ flex: 1, minWidth: 0 }} onClick={() => setMode('edit')}>Edit</StrideButton>
+              <StrideButton variant="ghost" icon="cal" style={{ flex: 1, minWidth: 0 }} onClick={postponeSession}>Tomorrow</StrideButton>
+            </div>
+            <StrideButton variant="volt" icon="play" block onClick={startSession}>Start</StrideButton>
           </>
         )}
         {planned && (
           <>
-            <StrideButton variant="ghost" icon="edit" style={{ flex: 1 }} onClick={() => setMode('edit')}>Edit</StrideButton>
-            <StrideButton variant="ghost" style={{ flex: 1 }}>Move</StrideButton>
-            <StrideButton variant="primary" icon="play" style={{ flex: 1.2 }} onClick={startSession}>Start early</StrideButton>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <StrideButton variant="ghost" icon="edit" style={{ flex: 1, minWidth: 0 }} onClick={() => setMode('edit')}>Edit</StrideButton>
+              <StrideButton variant="ghost" icon="cal" style={{ flex: 1, minWidth: 0 }} onClick={postponeSession}>Move</StrideButton>
+            </div>
+            <StrideButton variant="primary" icon="play" block onClick={startSession}>Start early</StrideButton>
           </>
         )}
         {done && (
-          <>
-            <StrideButton variant="ghost" style={{ flex: 1 }}>View summary</StrideButton>
-            <StrideButton variant="primary" icon="plus" style={{ flex: 1 }}>Repeat</StrideButton>
-          </>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <StrideButton variant="ghost" style={{ flex: 1, minWidth: 0 }}>View summary</StrideButton>
+            <StrideButton variant="primary" icon="plus" style={{ flex: 1, minWidth: 0 }}>Repeat</StrideButton>
+          </div>
         )}
         {skipped && (
-          <>
-            <StrideButton variant="ghost" icon="cal" style={{ flex: 1 }}>Reschedule</StrideButton>
-            <StrideButton variant="primary" icon="play" style={{ flex: 1 }} onClick={startSession}>Do it now</StrideButton>
-          </>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <StrideButton variant="ghost" icon="cal" style={{ flex: 1, minWidth: 0 }} onClick={postponeSession}>Reschedule</StrideButton>
+            <StrideButton variant="primary" icon="play" style={{ flex: 1, minWidth: 0 }} onClick={startSession}>
+              {doneBefore ? 'Do it again' : 'Do it now'}
+            </StrideButton>
+          </div>
         )}
       </div>
     </div>
@@ -1604,80 +1708,108 @@ function SessionStat({ label, value, dim }) {
 }
 
 function PlanMonthView({ go, persona }) {
-  // Build a 5-week calendar with mixed statuses
-  const weeks = 5;
-  const today = 21;
-  const completedSet = new Set([1,2,4,5,7,8,9,11,12,14,15,17,18,19]);
-  const plannedSet = new Set([22,23,25,26,28,29,30]);
+  // REAL calendar: every session across all blocks, placed by scheduled date.
+  const now = new Date();
+  const [monthStart, setMonthStart] = React.useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
   const [openSession, setOpenSession] = React.useState(null);
 
-  const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const kindByCol = ['Pull','Legs','Rest','Push','Pull','Legs','Rest'];
-  const titleByKind = {
-    Push: 'Push — Strength A', Pull: 'Pull — Hypertrophy',
-    Legs: 'Lower — Squat focus', Rest: 'Mobility · 20 min',
-  };
-  const buildSession = (date, status) => {
-    const col = (date + 3) % 7; // 0 = Mon … 6 = Sun
-    const kind = kindByCol[col];
-    const isRest = kind === 'Rest';
-    return {
-      day: dayNames[col], date, kind, title: isRest ? 'Active recovery' : titleByKind[kind], status,
-      volume: status === 'done' && !isRest ? 4600 + (date % 5) * 460 : 0,
-      duration: isRest ? 22 : 56 + (date % 4) * 5,
-    };
-  };
+  const byDate = {};
+  (window.STRIDE_BLOCKS || []).forEach((b) => (b.sessions || []).forEach((s) => {
+    if (s.scheduledDate) byDate[s.scheduledDate] = s;
+  }));
+  (window.STRIDE_WEEK_PLAN || []).forEach((s) => {
+    if (s.scheduledDate && !byDate[s.scheduledDate]) byDate[s.scheduledDate] = s;
+  });
+
+  const y = monthStart.getFullYear(), m = monthStart.getMonth();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const firstCol = (monthStart.getDay() + 6) % 7; // Monday-first column of the 1st
+  const rows = Math.ceil((firstCol + daysInMonth) / 7);
+  const isoOf = (d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  // Month stats — computed, never fabricated.
+  const monthPrefix = `${y}-${String(m + 1).padStart(2, '0')}-`;
+  const monthSessions = Object.keys(byDate).filter((k) => k.indexOf(monthPrefix) === 0).map((k) => byDate[k]);
+  const trainable = monthSessions.filter((s) => s.kind !== 'Rest');
+  const doneSessions = trainable.filter((s) => s.status === 'done');
+  const volumeKg = doneSessions.reduce((sum, s) => sum + (s.volume || 0), 0);
+  const avgDuration = doneSessions.length
+    ? Math.round(doneSessions.reduce((sum, s) => sum + (s.duration || 0), 0) / doneSessions.length)
+    : null;
+
+  // Directional page-turn: the incoming month slides in from the swipe side.
+  const [dir, setDir] = React.useState(0);
+  const page = (d) => { setDir(d); setMonthStart(new Date(y, m + d, 1)); };
+  const swipe = useSwipeNav(() => page(-1), () => page(1));
+  const monthLabel = monthStart.toLocaleDateString(window.strideLocale(), { month: 'long', year: 'numeric' });
 
   return (
-    <div style={{ padding: '0 20px' }}>
+    <div style={{ padding: '0 20px' }} {...swipe}>
+      {/* ‹ Month › header — chevrons + swipe both page */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <IconBtn icon="chevL" size={32} onClick={() => page(-1)}/>
+        <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 15, color: TT.ink, textTransform: 'capitalize' }}>{monthLabel}</div>
+        <IconBtn icon="chevR" size={32} onClick={() => page(1)}/>
+      </div>
+
+      <div key={`${y}-${m}`} style={{ animation: dir ? `${dir > 0 ? 'stridePageNext' : 'stridePagePrev'} .3s cubic-bezier(.22,.61,.36,1) both` : 'none' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, marginBottom: 8 }}>
         {['M','T','W','T','F','S','S'].map((d, i) => (
           <div key={i} style={{ textAlign: 'center', fontFamily: 'Inter', fontSize: 10, fontWeight: 700, letterSpacing: 1, color: TT.ink3, textTransform: 'uppercase' }}>{d}</div>
         ))}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
-        {Array.from({ length: weeks * 7 }, (_, i) => {
-          const date = i - 3; // offset so May 1 starts on Friday-ish
-          const isMay = date >= 1 && date <= 31;
-          const isToday = date === today;
-          const done = completedSet.has(date);
-          const planned = plannedSet.has(date);
-          const clickable = isMay && (done || planned || isToday);
-          const status = isToday ? 'today' : (done ? 'done' : 'planned');
+        {Array.from({ length: rows * 7 }, (_, i) => {
+          const date = i - firstCol + 1;
+          const inMonth = date >= 1 && date <= daysInMonth;
+          const s = inMonth ? byDate[isoOf(date)] : null;
+          const isToday = inMonth && isoOf(date) === todayIso;
+          const done = !!s && s.status === 'done';
+          const skipped = !!s && s.status === 'skipped';
+          const planned = !!s && !done && !skipped && s.kind !== 'Rest';
           return (
-            <div key={i} onClick={clickable ? () => setOpenSession(buildSession(date, status)) : undefined} style={{
+            <div key={i} onClick={s ? () => setOpenSession(s) : undefined} style={{
               aspectRatio: '1 / 1.05',
-              background: isToday ? TT.ink : (done ? TT.accent : (planned ? TT.surface : TT.surface)),
-              border: planned ? `1px dashed ${TT.line}` : (done ? 'none' : (isToday ? 'none' : `1px solid ${TT.lineSoft}`)),
+              background: isToday ? TT.ink : (done ? TT.accent : (skipped ? TT.lineSoft : TT.surface)),
+              border: planned && !isToday ? `1px dashed ${TT.line}` : (done || isToday ? 'none' : `1px solid ${TT.lineSoft}`),
               borderRadius: 10,
               display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
               padding: '6px 7px',
-              opacity: isMay ? 1 : 0.3,
-              cursor: clickable ? 'pointer' : 'default',
-              color: isToday ? '#fff' : (done ? '#fff' : TT.ink2),
+              opacity: inMonth ? 1 : 0.3,
+              cursor: s ? 'pointer' : 'default',
+              color: isToday ? '#fff' : (done ? '#fff' : (skipped ? TT.ink3 : TT.ink2)),
             }}>
-              <span style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12 }}>{isMay ? date : ''}</span>
+              <span style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12 }}>{inMonth ? date : ''}</span>
               {done && <StrideIcon name="check" size={11} color="#fff" strokeWidth={3}/>}
-              {isToday && <div style={{ width: 5, height: 5, borderRadius: 5, background: TT.volt, alignSelf: 'flex-end' }}/>}
+              {skipped && <StrideIcon name="x" size={10} color={TT.ink3} strokeWidth={2.5}/>}
+              {isToday && !done && <div style={{ width: 5, height: 5, borderRadius: 5, background: TT.volt, alignSelf: 'flex-end' }}/>}
             </div>
           );
         })}
       </div>
-      <div style={{ display: 'flex', gap: 16, marginTop: 16, fontFamily: 'Inter', fontSize: 11, color: TT.ink3 }}>
+      <div style={{ display: 'flex', gap: 16, marginTop: 16, fontFamily: 'Inter', fontSize: 11, color: TT.ink3, flexWrap: 'wrap' }}>
         <Legend color={TT.accent} label="Completed"/>
         <Legend color={TT.ink} label="Today"/>
         <Legend color={TT.surface} bordered label="Planned"/>
+        <Legend color={TT.lineSoft} label="Skipped"/>
       </div>
       <div style={{ marginTop: 22 }}>
-        <SectionHeader title="May Summary"/>
-        <Card style={{ marginTop: 10, padding: 18 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', rowGap: 14 }}>
-            <BigStat label="Sessions" value="14 / 20"/>
-            <BigStat label="Total volume" value="89.4t"/>
-            <BigStat label="Avg RPE" value="7.4"/>
-            <BigStat label="Avg duration" value="64 min"/>
-          </div>
-        </Card>
+        <SectionHeader title="Month summary"/>
+        {trainable.length === 0 ? (
+          <Card style={{ marginTop: 10, padding: 18 }}>
+            <div style={{ fontFamily: 'Inter', fontSize: 13, color: TT.ink3 }}>No sessions this month.</div>
+          </Card>
+        ) : (
+          <Card style={{ marginTop: 10, padding: 18 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', rowGap: 14 }}>
+              <BigStat label="Sessions" value={`${doneSessions.length} / ${trainable.length}`}/>
+              <BigStat label="Total volume" value={volumeKg >= 1000 ? `${(volumeKg / 1000).toFixed(1)}t` : `${Math.round(volumeKg)} kg`}/>
+              {avgDuration != null && <BigStat label="Avg duration" value={`${avgDuration} min`}/>}
+            </div>
+          </Card>
+        )}
+      </div>
       </div>
 
       {openSession && (
@@ -2035,55 +2167,120 @@ function BigStat({ label, value }) {
 // WEIGHT
 // ────────────────────────────────────────────────────────────────────
 function WeightScreen({ go }) {
-  const u = window.STRIDE_USER;
-  const h = window.STRIDE_WEIGHT_HISTORY;
-  const last = h[h.length - 1].kg;
-  const first = h[0].kg;
-  const change = (last - first).toFixed(1);
+  const u = window.STRIDE_USER || {};
+  // Guard EVERYTHING against an empty history — a fresh account must render the
+  // empty state, not crash the tree (black screen).
+  const h = window.STRIDE_WEIGHT_HISTORY || [];
+  const hasData = h.length > 0;
+  const last = hasData ? h[h.length - 1].kg : null;
+  const first = hasData ? h[0].kg : null;
+  const change = hasData ? (last - first).toFixed(1) : null;
+  const goalKg = u.goalWeightKg || null;
   const [showLog, setShowLog] = React.useState(false);
-  const [val, setVal] = React.useState('78.4');
+  const [val, setVal] = React.useState(() => (hasData ? String(last) : ''));
+  const [saving, setSaving] = React.useState(false);
+  // Morning weigh-in reminder — daily local notification at 6:00, toggleable.
+  const [remindOn, setRemindOn] = React.useState(() => {
+    try { return localStorage.getItem('stride_weigh_reminder') === '1'; } catch (e) { return false; }
+  });
+  const nativeLN = !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications);
+  const toggleReminder = (on) => {
+    setRemindOn(on);
+    if (window.__strideWeighReminder) {
+      window.__strideWeighReminder(on).then((r) => { if (on && r && !r.ok) setRemindOn(false); });
+    }
+  };
+  const save = () => {
+    const kg = parseFloat(String(val).replace(',', '.'));
+    if (!kg || kg < 20 || kg > 400) return;
+    if (!window.__strideLogWeight) { setShowLog(false); return; }
+    setSaving(true);
+    window.__strideLogWeight(kg)
+      .then(() => { setSaving(false); setShowLog(false); })
+      .catch(() => setSaving(false));
+  };
+  const todayLabel = new Date().toLocaleDateString(window.strideLocale(), { weekday: 'short', day: 'numeric', month: 'short' });
 
   return (
     <Screen>
-      <StrideHeader title="Weight" kicker={`Goal: ${u.goalWeightKg} kg`} back onBack={() => go('profile')} right={<IconBtn icon="plus" onClick={() => setShowLog(true)}/>}/>
+      <StrideHeader title="Weight" kicker={goalKg ? `${window.t('Goal:')} ${goalKg} kg` : undefined} back onBack={() => go('profile')} right={<IconBtn icon="plus" onClick={() => setShowLog(true)}/>}/>
       <div style={{ padding: '0 20px' }}>
+        {!hasData && (
+          <Card style={{ padding: 22, textAlign: 'center' }}>
+            <div style={{ fontSize: 34 }}>⚖️</div>
+            <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 18, color: TT.ink, marginTop: 8 }}>No weight logged yet</div>
+            <div style={{ fontFamily: 'Inter', fontSize: 13, color: TT.ink3, marginTop: 6, lineHeight: 1.5 }}>Log your first weigh-in and the trend chart starts here.</div>
+            <div style={{ marginTop: 16 }}>
+              <StrideButton variant="primary" block icon="plus" onClick={() => setShowLog(true)}>Log weight</StrideButton>
+            </div>
+          </Card>
+        )}
+        {hasData && (
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 14 }}>
             <div>
               <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 56, lineHeight: 0.9, letterSpacing: -2, color: TT.ink }}>{last}<span style={{ fontSize: 22, color: TT.ink3, marginLeft: 4 }}>kg</span></div>
-              <div style={{ fontFamily: 'Inter', fontSize: 13, color: TT.green, fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <StrideIcon name="arrowDown" size={14} color={TT.green}/>
-                {change} kg in 12 weeks
+              {h.length > 1 && (
+                <div style={{ fontFamily: 'Inter', fontSize: 13, color: parseFloat(change) <= 0 ? TT.green : TT.rose, fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <StrideIcon name={parseFloat(change) <= 0 ? 'arrowDown' : 'arrowUp'} size={14} color={parseFloat(change) <= 0 ? TT.green : TT.rose}/>
+                  {change} kg {window.t('since first entry')}
+                </div>
+              )}
+            </div>
+            {goalKg != null && (
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontFamily: 'Inter', fontSize: 11, color: TT.ink3, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700 }}>To goal</div>
+                <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 22, color: TT.ink }}>{(last - goalKg) > 0 ? '−' : '+'}{Math.abs(last - goalKg).toFixed(1)} kg</div>
               </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontFamily: 'Inter', fontSize: 11, color: TT.ink3, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700 }}>To goal</div>
-              <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 22, color: TT.ink }}>−{(last - u.goalWeightKg).toFixed(1)} kg</div>
-            </div>
+            )}
           </div>
-          <StrideLineChart data={h} w={340} h={150} accent={TT.ink}/>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontFamily: 'Inter', fontSize: 10, color: TT.ink3 }}>
-            <span>{h[0].d}</span>
-            <span>{h[Math.floor(h.length/2)].d}</span>
-            <span>Today</span>
-          </div>
+          {h.length > 1 && <StrideLineChart data={h} w={340} h={150} accent={TT.ink}/>}
+          {h.length > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontFamily: 'Inter', fontSize: 10, color: TT.ink3 }}>
+              <span>{h[0].d}</span>
+              <span>{h[Math.floor(h.length/2)].d}</span>
+              <span>Today</span>
+            </div>
+          )}
         </Card>
+        )}
 
+        {hasData && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 12 }}>
           <Card style={{ padding: 14 }}>
-            <div style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: 700, color: TT.ink3, letterSpacing: 0.6, textTransform: 'uppercase' }}>Body fat</div>
-            <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 20, marginTop: 4 }}>{u.bodyFat}%</div>
+            <div style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: 700, color: TT.ink3, letterSpacing: 0.6, textTransform: 'uppercase' }}>Entries</div>
+            <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 20, marginTop: 4 }}>{h.length}</div>
           </Card>
-          <Card style={{ padding: 14 }}>
-            <div style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: 700, color: TT.ink3, letterSpacing: 0.6, textTransform: 'uppercase' }}>BMI</div>
-            <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 20, marginTop: 4 }}>{(last / ((u.height/100) ** 2)).toFixed(1)}</div>
-          </Card>
-          <Card style={{ padding: 14 }}>
-            <div style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: 700, color: TT.ink3, letterSpacing: 0.6, textTransform: 'uppercase' }}>Trend</div>
-            <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 20, marginTop: 4, color: TT.green }}>−0.32/wk</div>
+          {u.bodyFat != null && (
+            <Card style={{ padding: 14 }}>
+              <div style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: 700, color: TT.ink3, letterSpacing: 0.6, textTransform: 'uppercase' }}>Body fat</div>
+              <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 20, marginTop: 4 }}>{u.bodyFat}%</div>
+            </Card>
+          )}
+          {u.height > 0 && (
+            <Card style={{ padding: 14 }}>
+              <div style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: 700, color: TT.ink3, letterSpacing: 0.6, textTransform: 'uppercase' }}>BMI</div>
+              <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 20, marginTop: 4 }}>{(last / ((u.height/100) ** 2)).toFixed(1)}</div>
+            </Card>
+          )}
+        </div>
+        )}
+
+        {/* Morning weigh-in reminder */}
+        <div style={{ marginTop: 12 }}>
+          <Card style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 11, background: TT.lineSoft, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <StrideIcon name="bolt" size={18} color={TT.ink2}/>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 14.5, color: TT.ink }}>Morning weigh-in reminder</div>
+              <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, marginTop: 2 }}>{nativeLN ? 'Every day at 6:00' : 'Available on your phone'}</div>
+            </div>
+            <StrideToggle on={remindOn} onChange={toggleReminder}/>
           </Card>
         </div>
 
+        {hasData && (
         <div style={{ marginTop: 20 }}>
           <SectionHeader title="Log"/>
           <div style={{ marginTop: 10, background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 18, overflow: 'hidden' }}>
@@ -2109,6 +2306,7 @@ function WeightScreen({ go }) {
             })}
           </div>
         </div>
+        )}
 
         <div style={{ height: 24 }}/>
       </div>
@@ -2117,10 +2315,10 @@ function WeightScreen({ go }) {
       {showLog && (
         <Sheet onClose={() => setShowLog(false)} title="Log weight">
           <div style={{ padding: '8px 4px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700 }}>Today · May 21</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', marginTop: 14 }}>
-              <input value={val} onChange={e => setVal(e.target.value)} inputMode="decimal" style={{
-                width: 180, textAlign: 'center', fontFamily: 'Archivo, sans-serif', fontWeight: 900,
+            <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700 }}>{window.t('Today')} · {todayLabel}</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 14 }}>
+              <input value={val} onChange={e => setVal(e.target.value)} inputMode="decimal" placeholder="0.0" style={{
+                width: 210, textAlign: 'center', fontFamily: 'Archivo, sans-serif', fontWeight: 900,
                 fontSize: 64, color: TT.ink, border: 'none', outline: 'none', background: 'transparent',
                 letterSpacing: -2,
               }}/>
@@ -2132,12 +2330,61 @@ function WeightScreen({ go }) {
               <Chip bg={TT.lineSoft}>Post-workout</Chip>
             </div>
             <div style={{ width: '100%', marginTop: 20 }}>
-              <StrideButton variant="primary" block onClick={() => setShowLog(false)}>Save</StrideButton>
+              <StrideButton variant="primary" block onClick={save}>{saving ? 'Saving…' : 'Save'}</StrideButton>
             </div>
           </div>
         </Sheet>
       )}
     </Screen>
+  );
+}
+
+// Notification settings sheet — the single place both notification types live.
+function NotificationsBody() {
+  const nativeLN = !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications);
+  const read = (k) => { try { return localStorage.getItem(k) === '1'; } catch (e) { return false; } };
+  const [weighOn, setWeighOn] = React.useState(() => read('stride_weigh_reminder'));
+  const [pokesOn, setPokesOn] = React.useState(() => read('stride_coach_pokes'));
+
+  const toggleWeigh = (on) => {
+    setWeighOn(on);
+    if (window.__strideWeighReminder) {
+      window.__strideWeighReminder(on).then((r) => { if (on && r && !r.ok) setWeighOn(false); });
+    }
+  };
+  const togglePokes = (on) => {
+    setPokesOn(on);
+    try { localStorage.setItem('stride_coach_pokes', on ? '1' : '0'); } catch (e) {}
+    if (window.__strideSchedulePokes) {
+      window.__strideSchedulePokes().then((r) => { if (on && r && !r.ok && r.reason === 'denied') setPokesOn(false); });
+    }
+  };
+
+  const RowT = ({ icon, label, sub, on, onChange }) => (
+    <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${TT.lineSoft}` }}>
+      <div style={{ width: 36, height: 36, borderRadius: 11, background: TT.lineSoft, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+        <StrideIcon name={icon} size={18} color={TT.ink2}/>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 14.5, color: TT.ink }}>{label}</div>
+        <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, marginTop: 2 }}>{sub}</div>
+      </div>
+      <StrideToggle on={on} onChange={onChange}/>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: '4px 0 8px' }}>
+      <div style={{ background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 16, overflow: 'hidden' }}>
+        <RowT icon="scale" label="Morning weigh-in reminder" sub="Every day at 6:00" on={weighOn} onChange={toggleWeigh}/>
+        <RowT icon="sparkles" label="Coach pokes" sub="1–4 a day · based on your day, from your coach" on={pokesOn} onChange={togglePokes}/>
+      </div>
+      {!nativeLN && (
+        <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, marginTop: 12, lineHeight: 1.5 }}>
+          Notifications are delivered on your phone — toggles here only save the preference.
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2221,6 +2468,7 @@ function ProfileScreen({ go, persona, setPersona }) {
   const injuriesList = window.STRIDE_INJURIES || [];
   // Personal records sheet
   const [prsOpen, setPrsOpen] = React.useState(false);
+  const [notifOpen, setNotifOpen] = React.useState(false);
   const [prs, setPrs] = React.useState(() => window.STRIDE_PRS || []);
   const [prAdding, setPrAdding] = React.useState(false);
   const savePr = (pr) => window.__strideSavePr(pr).then(() => { setPrs(window.STRIDE_PRS || []); setPrAdding(false); });
@@ -2312,7 +2560,7 @@ function ProfileScreen({ go, persona, setPersona }) {
               </div>
             </div>
             <Row icon="settings" label="Units & equipment" sub="Kg · Metric"/>
-            <Row icon="bolt" label="Notifications"/>
+            <Row icon="bolt" label="Notifications" onClick={() => setNotifOpen(true)}/>
             <Row icon="heart" label="Health & Apple Watch" sub="Connected"/>
             <Row icon="info" label="About Stride"/>
           </div>
@@ -2345,6 +2593,12 @@ function ProfileScreen({ go, persona, setPersona }) {
       {notesOpen && (
         <Sheet title="Personal notes" onClose={() => setNotesOpen(false)}>
           <CoachNotesBody notes={notes} onSave={saveNotes} onClose={() => setNotesOpen(false)} trainer={trainer}/>
+        </Sheet>
+      )}
+
+      {notifOpen && (
+        <Sheet title="Notifications" onClose={() => setNotifOpen(false)}>
+          <NotificationsBody/>
         </Sheet>
       )}
 
@@ -2402,13 +2656,19 @@ function SetupBody({ setup, onSave, onClose }) {
   const [styles, setStyles] = React.useState(setup.trainingStyle || []);
   const [days, setDays] = React.useState(setup.daysPerWeek != null ? setup.daysPerWeek : null);
   const [years, setYears] = React.useState(setup.yearsTraining != null ? setup.yearsTraining : null);
+  const [warmup, setWarmup] = React.useState(setup.warmupStyle || 'per_exercise');
   const [bio, setBio] = React.useState(setup.bio || '');
   const [notes, setNotes] = React.useState(setup.notes || '');
   const [saving, setSaving] = React.useState(false);
   const toggle = (k) => setStyles((s) => s.includes(k) ? s.filter((x) => x !== k) : [...s, k]);
   const save = () => {
     setSaving(true);
-    Promise.resolve(onSave({ training_style: styles, days_per_week: days, years_training: years, bio: bio.trim(), notes: notes.trim() }))
+    // Warm-up style drives how sessions are BUILT; offer to restructure today's session in place.
+    const changed = warmup !== (setup.warmupStyle || 'per_exercise');
+    const applyToday = changed && window.STRIDE_TODAYS_WORKOUT && window.STRIDE_TODAYS_WORKOUT.id
+      && window.__strideApplyWarmupStyle && window.confirm(window.t('Apply the new warm-up style to today’s session?'));
+    Promise.resolve(applyToday ? window.__strideApplyWarmupStyle(warmup) : null)
+      .then(() => onSave({ training_style: styles, days_per_week: days, years_training: years, warmup_style: warmup, bio: bio.trim(), notes: notes.trim() }))
       .catch(() => setSaving(false));
   };
   const lbl = { fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 10.5, color: TT.ink3, textTransform: 'uppercase', letterSpacing: 1, margin: '16px 0 8px' };
@@ -2428,6 +2688,14 @@ function SetupBody({ setup, onSave, onClose }) {
       <div style={lbl}>{window.t('Training experience')}</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
         {EXP.map((e) => <button key={e.y} onClick={() => setYears(e.y)} style={chip(years === e.y)}>{e.label}</button>)}
+      </div>
+      <div style={lbl}>{window.t('Warm-up style')}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+        <button onClick={() => setWarmup('per_exercise')} style={chip(warmup === 'per_exercise')}>{window.t('Per exercise')}</button>
+        <button onClick={() => setWarmup('grouped')} style={chip(warmup === 'grouped')}>{window.t('Grouped')}</button>
+      </div>
+      <div style={{ fontFamily: 'Inter', fontSize: 11.5, color: TT.ink3, marginTop: 6, lineHeight: 1.4 }}>
+        {warmup === 'grouped' ? window.t('One warm-up block up front; working exercises skip their warm-up set.') : window.t('Each exercise starts with its own warm-up set.')}
       </div>
       <div style={lbl}>{window.t('About you')}</div>
       <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={2} placeholder="e.g. Desk job, train before work." style={ta}/>

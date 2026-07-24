@@ -130,22 +130,145 @@
     return api('/personal-records/' + id, { method: 'DELETE' }).then(function () { return window.__strideLoadPrs(); });
   };
 
+  // ---- weight -----------------------------------------------------------------
+  // Log a weigh-in (backend upserts one entry per day) and refresh the history
+  // global in place so the chart updates without a full reload.
+  window.__strideLogWeight = function (kg) {
+    return api('/weight', { method: 'POST', body: JSON.stringify({ kg: kg }) })
+      .then(function () { return api('/weight'); })
+      .then(function (w) {
+        var hist = (w.entries || []).map(function (e) { return { d: fmtDate(e.date), kg: e.kg }; });
+        window.STRIDE_WEIGHT_HISTORY = hist;
+        if (window.__STRIDE_LIVE) window.__STRIDE_LIVE.STRIDE_WEIGHT_HISTORY = hist;
+        if (window.__strideRerender) window.__strideRerender();
+        return hist;
+      });
+  };
+
+  // ---- morning weigh-in reminder ----------------------------------------------
+  // Daily local notification at 06:00 (id 601), toggleable from the Weight
+  // screen. No-ops gracefully in a browser (plugin only exists on device).
+  window.__strideWeighReminder = function (on) {
+    try { localStorage.setItem('stride_weigh_reminder', on ? '1' : '0'); } catch (e) {}
+    var LN = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+    if (!LN) return Promise.resolve({ ok: !on ? true : false, reason: 'unsupported' });
+    if (!on) {
+      return LN.cancel({ notifications: [{ id: 601 }] }).then(function () { return { ok: true }; });
+    }
+    return LN.requestPermissions().then(function (perm) {
+      if (perm.display !== 'granted') return { ok: false, reason: 'denied' };
+      return LN.schedule({
+        notifications: [{
+          id: 601,
+          title: window.t ? window.t('Morning weigh-in') : 'Morning weigh-in',
+          body: window.t ? window.t('Step on the scale and log it — it takes 10 seconds.') : 'Step on the scale and log it — it takes 10 seconds.',
+          schedule: { on: { hour: 6, minute: 0 }, allowWhileIdle: true },
+        }],
+      }).then(function () { return { ok: true }; });
+    });
+  };
+
+  // ---- coach pokes --------------------------------------------------------------
+  // Context-aware motivational notifications: the backend writes 1-4 short texts
+  // in the coach's persona voice (grounded in today's state / energy / streak);
+  // we schedule them as LOCAL notifications (ids 611-614) at the returned times.
+  // Refreshed on every app open + when the toggle flips. Browser: no-op.
+  window.__strideSchedulePokes = function () {
+    var LN = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+    var enabled = false;
+    try { enabled = localStorage.getItem('stride_coach_pokes') === '1'; } catch (e) {}
+    var cancelAll = function () {
+      return LN ? LN.cancel({ notifications: [{ id: 611 }, { id: 612 }, { id: 613 }, { id: 614 }] }).catch(function () {}) : Promise.resolve();
+    };
+    if (!LN || !enabled) return cancelAll().then(function () { return { ok: !enabled, reason: LN ? undefined : 'unsupported' }; });
+
+    var energy = null, done = null;
+    try {
+      var w = window.STRIDE_TODAYS_WORKOUT;
+      done = (w && w.status === 'done') ? 1 : 0;
+      var d = new Date();
+      var iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      if (localStorage.getItem('stride_today_done') === iso) done = 1;
+      var en = localStorage.getItem('stride_checkin_' + iso);
+      if (en) energy = parseInt(en, 10) || null;
+    } catch (e) {}
+
+    var q = [];
+    if (energy != null) q.push('energy=' + energy);
+    if (done != null) q.push('done=' + done);
+    return LN.requestPermissions().then(function (perm) {
+      if (perm.display !== 'granted') return { ok: false, reason: 'denied' };
+      return api('/coach/pokes' + (q.length ? '?' + q.join('&') : '')).then(function (r) {
+        var items = (r && r.items) || [];
+        return cancelAll().then(function () {
+          if (!items.length) return { ok: true, scheduled: 0 };
+          var now = new Date();
+          var notifications = items.slice(0, 4).map(function (item, i) {
+            var hm = String(item.at || '12:00').split(':');
+            var at = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(hm[0], 10) || 12, parseInt(hm[1], 10) || 0);
+            if (at <= now) at.setDate(at.getDate() + 1); // past slot → same time tomorrow
+            return { id: 611 + i, title: item.title, body: item.body, schedule: { at: at, allowWhileIdle: true } };
+          });
+          return LN.schedule({ notifications: notifications }).then(function () { return { ok: true, scheduled: notifications.length }; });
+        });
+      });
+    }).catch(function (e) { console.error('Stride: poke scheduling failed.', e); return { ok: false, reason: 'error' }; });
+  };
+
   window.__strideLoadSession = function (id) {
     return api('/sessions/' + id).then(function (r) {
       var s = r && r.session;
       if (!s) return null;
       window.STRIDE_ACTIVE_WORKOUT = {
-        title: s.title, block: s.kind || '', durationMin: s.duration,
+        id: s.id, title: s.title, block: s.kind || '', kind: s.kind || '', durationMin: s.duration,
         volumeKg: s.volume || 0, rpe: s.rpe || 0,
         exercises: (s.exercises || []).map(function (ex) {
           return {
-            id: 'ex-' + ex.id, name: ex.name, tag: ex.tag || '', note: ex.note || '',
-            sets: (ex.sets || []).map(function (st) { return { kind: st.kind, reps: st.reps, kg: st.kg, rest: st.rest }; }),
+            id: 'ex-' + ex.id, exerciseId: ex.id, name: ex.name, tag: ex.tag || '', note: ex.note || '',
+            section: ex.section || 'working',
+            metricType: ex.metric_type || 'load',
+            metrics: ex.metrics || null,
+            sets: (ex.sets || []).map(function (st) { return { kind: st.kind, reps: st.reps, kg: st.kg, band: st.band, rest: st.rest }; }),
           };
         }),
       };
       return window.STRIDE_ACTIVE_WORKOUT;
     });
+  };
+
+  // Mark a session complete on the backend (status → done, + optional rpe/notes) and
+  // refresh the globals so Home / Plan stop showing the "start" card. Fire-and-forget
+  // safe: resolves null when there's no real (backend) session id.
+  window.__strideCompleteSession = function (id, body) {
+    if (id == null) return Promise.resolve(null);
+    return api('/sessions/' + id + '/complete', { method: 'POST', body: JSON.stringify(body || {}) })
+      .then(function (res) {
+        var refresh = window.__strideRefresh ? window.__strideRefresh() : Promise.resolve();
+        return refresh.then(function () { return res && res.session; });
+      })
+      .catch(function () { return null; });
+  };
+
+  // Save the warm-up preference and restructure today's + upcoming sessions in place
+  // (grouped ↔ per_exercise), then refresh the globals so Home / the plan / the active
+  // player reflect the new structure immediately.
+  window.__strideApplyWarmupStyle = function (style) {
+    return api('/plan/warmup-style', { method: 'POST', body: JSON.stringify({ style: style }) })
+      .then(function (res) {
+        var refresh = window.__strideRefresh ? window.__strideRefresh() : Promise.resolve();
+        return refresh.then(function () { return res; });
+      });
+  };
+
+  // Manual session actions from the detail sheet: 'skip' (mark skipped now, with
+  // an optional reason) and 'postpone' (push to tomorrow / revive a skipped one).
+  // Refreshes the STRIDE_* globals afterwards so Home/Plan update everywhere.
+  window.__strideSessionAction = function (id, action, body) {
+    return api('/sessions/' + id + '/' + action, { method: 'POST', body: JSON.stringify(body || {}) })
+      .then(function (res) {
+        var refresh = window.__strideRefresh ? window.__strideRefresh() : Promise.resolve();
+        return refresh.then(function () { return res; });
+      });
   };
 
   // ---- map live API → prototype globals --------------------------------------
@@ -166,13 +289,17 @@
 
       var today = home.today;
       var STRIDE_TODAYS_WORKOUT = today ? {
-        title: today.title, block: blockLabel, durationMin: today.duration,
+        id: today.id, title: today.title, block: blockLabel, kind: today.kind || '', durationMin: today.duration,
+        status: today.status, // 'done' = trained already; Home shows the done card
         volumeKg: today.volume, rpe: today.rpe || 0,
         exercises: (today.exercises || []).map(function (ex) {
           return {
-            id: 'ex-' + ex.id, name: ex.name, tag: ex.tag || '', note: ex.note || '',
+            id: 'ex-' + ex.id, exerciseId: ex.id, name: ex.name, tag: ex.tag || '', note: ex.note || '',
+            section: ex.section || 'working',
+            metricType: ex.metric_type || 'load',
+            metrics: ex.metrics || null,
             sets: (ex.sets || []).map(function (s) {
-              return { kind: s.kind, reps: s.reps, kg: s.kg, rest: s.rest };
+              return { kind: s.kind, reps: s.reps, kg: s.kg, band: s.band, rest: s.rest };
             }),
           };
         }),
@@ -180,7 +307,7 @@
 
       var ICONS = { Push: 'dumbbell', Pull: 'dumbbell', Legs: 'flame', Rest: 'heart', Cardio: 'heart' };
       var STRIDE_WEEK_PLAN = (home.week || []).map(function (d) {
-        return { id: d.id, day: d.day, date: d.date, kind: d.kind, title: d.title, status: d.status, volume: d.volume, duration: d.duration };
+        return { id: d.id, day: d.day, date: d.date, scheduledDate: d.scheduled_date, kind: d.kind, title: d.title, status: d.status, volume: d.volume, duration: d.duration, skipReason: d.skip_reason || null };
       });
       // Whether a plan exists + the next upcoming session, so Home can show a
       // "rest day · next training in X days" state instead of "nothing planned".
@@ -239,6 +366,7 @@
         trainingStyle: prof.training_style || [],
         daysPerWeek: (prof.days_per_week != null ? prof.days_per_week : null),
         yearsTraining: (prof.years_training != null ? prof.years_training : null),
+        warmupStyle: prof.warmup_style || 'per_exercise',
         bio: prof.bio || '',
         notes: prof.notes || '',
       };
@@ -298,7 +426,7 @@
             brief: b.brief || null, // what was asked for when this plan was generated
             createdOn: b.created_at ? fmtDate(b.created_at) : '',
             sessions: (b.sessions || []).map(function (s) {
-              return { id: s.id, day: s.day, date: s.date, kind: s.kind, title: s.title, status: s.status, volume: s.volume, duration: s.duration };
+              return { id: s.id, day: s.day, date: s.date, scheduledDate: s.scheduled_date, kind: s.kind, title: s.title, status: s.status, volume: s.volume, duration: s.duration, skipReason: s.skip_reason || null };
             }),
             // Applied coach edits (block change history) + still-pending proposals.
             changes: (b.changes || []).map(function (c) {
@@ -325,6 +453,9 @@
   function buildLibrary(exercises) {
     function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''); }
     function title(s) { return String(s).charAt(0).toUpperCase() + String(s).slice(1); }
+    // Display-only renames — the API keeps the raw category value (plan
+    // generation, catalog gating and seeders all still key on it).
+    var CATEGORY_LABELS = { strength: 'Gym' };
     var cats = {};
     exercises.forEach(function (e) {
       var cat = e.category || 'other', grp = e.group || 'General';
@@ -344,7 +475,7 @@
           return { id: cat + '-' + slug(grp), name: grp, count: cats[cat][grp].length, exercises: cats[cat][grp] };
         });
         return {
-          id: cat, name: title(cat),
+          id: cat, name: CATEGORY_LABELS[cat] || title(cat),
           count: children.reduce(function (a, c) { return a + c.count; }, 0),
           children: children,
         };
@@ -359,7 +490,10 @@
     function ensureConv() {
       if (convId) return Promise.resolve(convId);
       return api('/coach/conversations').then(function (list) {
-        if (list.conversations && list.conversations[0]) { convId = list.conversations[0].id; return convId; }
+        // The AI tab's default thread is the most recent GENERAL conversation —
+        // block-scoped ones belong to their block chat (openable via history).
+        var general = (list.conversations || []).filter(function (c) { return !c.block_id; });
+        if (general[0]) { convId = general[0].id; return convId; }
         return api('/coach/conversations', { method: 'POST', body: JSON.stringify({ persona_key: 'calm' }) })
           .then(function (r) { convId = r.conversation.id; return convId; });
       });
@@ -393,11 +527,67 @@
       applyProposal: function (id) {
         return api('/coach/proposals/' + id + '/apply', { method: 'POST' }).then(function (res) {
           if (window.__strideRefresh) window.__strideRefresh(); // refresh affected screens in the background
+          // Mid-workout apply: if the change hit the session being played, pull
+          // its fresh copy so the player updates in place (no restart).
+          window.__strideRefreshActiveWorkout(res && res.session_ids);
           return res;
         });
       },
       dismissProposal: function (id) {
         return api('/coach/proposals/' + id + '/dismiss', { method: 'POST' });
+      },
+      // Bulk confirm/dismiss: sequential (each apply mutates the plan), one
+      // screen refresh at the end. Returns per-id outcomes so cards can settle.
+      applyProposals: function (ids) {
+        var outcome = { applied: [], failed: [] };
+        return ids.reduce(function (chain, id) {
+          return chain.then(function () {
+            return api('/coach/proposals/' + id + '/apply', { method: 'POST' })
+              .then(function () { outcome.applied.push(id); })
+              .catch(function (e) { outcome.failed.push({ id: id, status: e.status }); });
+          });
+        }, Promise.resolve()).then(function () {
+          if (outcome.applied.length && window.__strideRefresh) window.__strideRefresh();
+          if (outcome.applied.length) window.__strideRefreshActiveWorkout(null);
+          return outcome;
+        });
+      },
+      dismissProposals: function (ids) {
+        var outcome = { dismissed: [], failed: [] };
+        return ids.reduce(function (chain, id) {
+          return chain.then(function () {
+            return api('/coach/proposals/' + id + '/dismiss', { method: 'POST' })
+              .then(function () { outcome.dismissed.push(id); })
+              .catch(function (e) { outcome.failed.push({ id: id, status: e.status }); });
+          });
+        }, Promise.resolve()).then(function () { return outcome; });
+      },
+      // Conversation history for the AI tab: list every thread (general + per
+      // block), open one (it becomes the active thread send() posts into),
+      // start a fresh one, or delete one.
+      listConversations: function () {
+        return api('/coach/conversations').then(function (r) { return r.conversations || []; });
+      },
+      activeConversationId: function () { return convId; },
+      openConversation: function (id) {
+        return api('/coach/conversations/' + id).then(function (res) {
+          convId = res.conversation.id;
+          if (res.conversation.block_id) blockConvIds[res.conversation.block_id] = res.conversation.id;
+          return {
+            conversation: res.conversation,
+            messages: (res.conversation.messages || []).map(function (m) { return toMessage(m.role, m.content, m.adjustments); }),
+          };
+        });
+      },
+      newConversation: function () {
+        return api('/coach/conversations', { method: 'POST', body: JSON.stringify({}) })
+          .then(function (r) { convId = r.conversation.id; return r.conversation; });
+      },
+      deleteConversation: function (id) {
+        return api('/coach/conversations/' + id, { method: 'DELETE' }).then(function () {
+          if (convId === id) convId = null;
+          Object.keys(blockConvIds).forEach(function (k) { if (blockConvIds[k] === id) delete blockConvIds[k]; });
+        });
       },
       // Block-scoped chat: a conversation per block that edits the WHOLE block.
       loadBlockChat: function (blockId) {
@@ -437,6 +627,24 @@
     }).catch(function () {});
   };
 
+  // Refetch ONLY the session currently in the workout player and swap it into
+  // STRIDE_ACTIVE_WORKOUT in place, so mid-workout coach edits show up on the
+  // next render without restarting the session. `sessionIds` (from an apply
+  // response) limits the refetch to when the played session was actually touched;
+  // pass null to refresh unconditionally.
+  window.__strideRefreshActiveWorkout = function (sessionIds) {
+    var w = window.STRIDE_ACTIVE_WORKOUT || window.STRIDE_TODAYS_WORKOUT;
+    if (!w || !w.id) return Promise.resolve(null);
+    if (sessionIds && sessionIds.length && sessionIds.indexOf(w.id) === -1) return Promise.resolve(null);
+    return window.__strideLoadSession(w.id).then(function (fresh) {
+      if (fresh && window.STRIDE_TODAYS_WORKOUT && window.STRIDE_TODAYS_WORKOUT.id === fresh.id) {
+        window.STRIDE_TODAYS_WORKOUT = fresh; // keep Home consistent too
+      }
+      if (window.__strideRerender) window.__strideRerender();
+      return fresh;
+    }).catch(function () { return null; });
+  };
+
   // ---- boot the prototype -----------------------------------------------------
   // Load the single precompiled bundle (all proto/*.jsx concatenated in order and
   // JSX-transformed at build time — see vite.config.ts's strideProto plugin). It's
@@ -464,6 +672,9 @@
       var login = document.getElementById('stride-login');
       if (login) login.remove();
       return bootProto();
+    }).then(function () {
+      // Refresh today's coach pokes with current context (no-op if disabled/browser).
+      if (window.__strideSchedulePokes) window.__strideSchedulePokes();
     }).catch(function () { /* 401 handled in showLogin */ });
   }
 

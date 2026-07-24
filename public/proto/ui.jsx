@@ -51,6 +51,7 @@ function StrideIcon({ name, size = 22, color = 'currentColor', strokeWidth = 2, 
     more: <><circle {...f} cx="5" cy="12" r="1.7"/><circle {...f} cx="12" cy="12" r="1.7"/><circle {...f} cx="19" cy="12" r="1.7"/></>,
     info: <><circle {...p} cx="12" cy="12" r="9"/><path {...p} d="M12 11v6"/><circle {...f} cx="12" cy="7.5" r="1"/></>,
     sliders: <><path {...p} d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle {...p} cx="16" cy="7" r="2"/><circle {...p} cx="8" cy="17" r="2"/></>,
+    history: <><path {...p} d="M3.5 12a8.5 8.5 0 1 0 2.5-6L3.5 8.5"/><path {...p} d="M3.5 4v4.5H8"/><path {...p} d="M12 8v4.5l3 2"/></>,
     heart: <><path {...p} d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z"/></>,
     leaf: <><path {...p} d="M5 19c0-8 6-14 14-14 0 8-6 14-14 14ZM5 19l8-8"/></>,
     eye: <><path {...p} d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle {...p} cx="12" cy="12" r="3"/></>,
@@ -680,6 +681,77 @@ function strideFormatPr(pr) {
   }
 }
 
+// ── In-workout PR detection ───────────────────────────────────
+// Resolve an active-workout exercise to its numeric library (catalogue) id.
+// Live sessions carry a clean `exerciseId`; ids are also prefixed `ex-<id>`.
+// Mock/free-text ids (e.g. 'ex-bench') have no catalogue link → null (no-op).
+function strideExFk(ex) {
+  if (!ex) return null;
+  if (typeof ex.exerciseId === 'number') return ex.exerciseId;
+  const raw = ex.exerciseId != null ? ex.exerciseId : ex.id;
+  const m = String(raw).match(/^ex-(\d+)$/);
+  return m ? Number(m[1]) : null;
+}
+
+// A single comparable number for a PR's metrics, per metric type. Higher = better.
+// load → estimated 1RM (Epley); reps → count; hold → seconds. Others untracked.
+function stridePrScore(metricType, metrics) {
+  const m = metrics || {};
+  if (metricType === 'load') return (m.weight != null && m.reps != null) ? m.weight * (1 + m.reps / 30) : null;
+  if (metricType === 'reps') return m.reps != null ? m.reps : null;
+  if (metricType === 'hold') return m.seconds != null ? m.seconds : null;
+  return null; // run / sprint / machine aren't captured by a logged set
+}
+
+// Decide whether a just-logged set is a personal record for its exercise.
+// `entry` is the active-workout set log {reps, kg, band}. Returns null (no PR) or
+// { exercise_id, metric_type, metrics, score, prevScore, isFirst, beats:{old,new} }.
+function strideDetectPr(ex, entry, existingPrs) {
+  if (ex && ex.section === 'warmup') return null;               // warm-up movements never set PRs
+  const fk = strideExFk(ex);
+  if (fk == null) return null;                                   // mock / unlinked → skip
+  const mt = (ex && ex.metricType) || 'load';
+  if (mt === 'run' || mt === 'sprint' || mt === 'machine') return null;
+
+  const reps = entry && entry.reps != null ? Number(entry.reps) : null;
+  const kg = entry && entry.kg != null ? Number(entry.kg) : null;
+  const band = entry && entry.band != null ? Number(entry.band) : null;
+
+  let metrics, score;
+  if (mt === 'hold') {                                           // seconds live in the set's `reps` field
+    if (!reps || reps <= 0) return null;
+    metrics = { seconds: reps };
+    score = reps;
+  } else if (mt === 'reps') {
+    if (!reps || reps <= 0) return null;
+    metrics = { reps };
+    score = reps;
+  } else {                                                       // load
+    if (!kg || kg <= 0 || !reps || reps <= 0) return null;
+    metrics = { weight: kg, reps };
+    if (band != null && band > 0) metrics.band = band;           // stored, but excluded from 1RM
+    score = kg * (1 + reps / 30);                                // Epley est-1RM
+  }
+
+  const mine = (existingPrs || []).filter(p => p.exercise_id === fk && p.metric_type === mt);
+  let prevScore = null, prevPr = null;
+  mine.forEach(p => {
+    const s = stridePrScore(mt, p.metrics);
+    if (s != null && (prevScore == null || s > prevScore)) { prevScore = s; prevPr = p; }
+  });
+
+  const isFirst = prevScore == null;
+  if (!isFirst && score <= prevScore) return null;              // strict >; ties are not PRs
+
+  return {
+    exercise_id: fk, metric_type: mt, metrics, score, prevScore, isFirst,
+    beats: {
+      old: prevPr ? (prevPr.display || strideFormatPr(prevPr)) : null,
+      new: strideFormatPr({ metric_type: mt, metrics }),
+    },
+  };
+}
+
 // Form quality 1–5 — how clean the rep/hold actually was (a sloppy 1RM ≠ a textbook
 // one). Optional: tapping the active pip again clears it. Shared by every PR logger.
 const FORM_QUALITY_LABELS = ['Sloppy', 'Shaky', 'Clean', 'Strong', 'Textbook'];
@@ -724,27 +796,24 @@ function PrEditor({ initial, lockType, onSave, onCancel }) {
   const init = initial || {};
   const catalog = window.STRIDE_EXERCISES || [];
   const [picked, setPicked] = React.useState(null);          // a catalogue exercise {id,name,metricType}
-  const [custom, setCustom] = React.useState(!!init.label);  // manual entry (not in catalogue)
   const [query, setQuery] = React.useState('');
-  const [label, setLabel] = React.useState(init.label || '');
-  const [metricType, setMetricType] = React.useState(init.metric_type || 'load');
   const [metrics, setMetrics] = React.useState(init.metrics || {});
   const [date, setDate] = React.useState(init.achieved_on || new Date().toISOString().slice(0, 10));
   const [formQuality, setFormQuality] = React.useState(init.form_quality || null);
   const [saving, setSaving] = React.useState(false);
 
-  // A picked catalogue exercise wins; otherwise fall back to the manual fields.
-  const effLabel = picked ? picked.name : label.trim();
-  const effType = picked ? picked.metricType : metricType;
+  // Records must link to a catalogue exercise — the pick supplies label + type + id.
+  const effLabel = picked ? picked.name : '';
+  const effType = picked ? picked.metricType : 'load';
   const exerciseId = picked ? picked.id : null;
-  const ready = !!picked || custom; // we know the type → show value inputs
+  const ready = !!picked; // we know the type → show value inputs
 
   const q = query.trim().toLowerCase();
   const matches = q.length >= 1 ? catalog.filter(e => e.name.toLowerCase().includes(q)).slice(0, 8) : [];
   const pick = (e) => { setPicked(e); setMetrics({}); setQuery(''); };
 
   const hasValue = Object.keys(metrics).some(k => metrics[k] != null && metrics[k] !== '');
-  const canSave = effLabel && hasValue && !saving;
+  const canSave = !!picked && hasValue && !saving;
   const save = () => {
     if (!canSave) return;
     setSaving(true);
@@ -766,29 +835,6 @@ function PrEditor({ initial, lockType, onSave, onCancel }) {
             <button onClick={() => { setPicked(null); setMetrics({}); }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: T.accent, fontFamily: 'Inter', fontWeight: 700, fontSize: 12.5 }}>Change</button>
           </div>
         </PrField>
-      ) : custom ? (
-        <div>
-          <PrField label="Exercise / record">
-            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Weighted pull-up 1RM" style={fieldStyle} autoFocus/>
-          </PrField>
-          {!lockType && (
-            <div style={{ marginTop: 12 }}>
-              <PrField label="Type">
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {PR_METRIC_TYPES.map(t => (
-                    <button key={t.key} onClick={() => { setMetricType(t.key); setMetrics({}); }} style={{
-                      padding: '7px 12px', borderRadius: 999, cursor: 'pointer',
-                      border: `1.5px solid ${metricType === t.key ? T.ink : T.line}`,
-                      background: metricType === t.key ? T.ink : T.surface, color: metricType === t.key ? '#fff' : T.ink2,
-                      fontFamily: 'Inter', fontWeight: 700, fontSize: 12.5,
-                    }}>{t.label}</button>
-                  ))}
-                </div>
-              </PrField>
-            </div>
-          )}
-          {catalog.length > 0 && <button onClick={() => { setCustom(false); setLabel(''); }} style={linkStyle}>← Search the catalogue instead</button>}
-        </div>
       ) : (
         <PrField label="Exercise">
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search exercises…" style={fieldStyle} autoFocus/>
@@ -805,7 +851,7 @@ function PrEditor({ initial, lockType, onSave, onCancel }) {
               ))}
             </div>
           )}
-          <button onClick={() => { setCustom(true); setQuery(''); }} style={linkStyle}>Can't find it? Enter manually</button>
+          <div style={{ ...linkStyle, cursor: 'default' }}>{window.t('Only catalogue exercises can be recorded.')}</div>
         </PrField>
       )}
 
@@ -885,8 +931,30 @@ function renderCoachMarkdown(text) {
   return out;
 }
 
+// Horizontal swipe pager: spread the returned handlers on a container to page
+// prev/next. Threshold 48px and dominantly horizontal (1.5× the vertical delta)
+// so it never fights vertical scrolling.
+function useSwipeNav(onPrev, onNext) {
+  const start = React.useRef(null);
+  return {
+    onTouchStart: (e) => {
+      const t = e.touches[0];
+      start.current = { x: t.clientX, y: t.clientY };
+    },
+    onTouchEnd: (e) => {
+      const s = start.current;
+      start.current = null;
+      if (!s || !e.changedTouches || !e.changedTouches.length) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - s.x, dy = t.clientY - s.y;
+      if (Math.abs(dx) < 48 || Math.abs(dx) < 1.5 * Math.abs(dy)) return;
+      if (dx < 0) onNext(); else onPrev();
+    },
+  };
+}
+
 Object.assign(window, {
-  renderCoachMarkdown,
+  renderCoachMarkdown, useSwipeNav,
   StrideIcon, BodySilhouette, StrideLineChart, ProgressRing,
   StrideBottomNav, StrideHeader, Chip, StrideButton, IconBtn, Card, Screen,
   StrideToggle, useStridePrefs, setStridePref, readStridePrefs,
@@ -895,4 +963,5 @@ Object.assign(window, {
   readEquipmentPrefs, useEquipmentPrefs,
   readStrideRequests, saveStrideRequests, addStrideRequest, setRequestStatus, useStrideRequests,
   formatRest, PrInput, PrField, PrEditor, FormQuality, strideFormatPr,
+  strideExFk, stridePrScore, strideDetectPr,
 });

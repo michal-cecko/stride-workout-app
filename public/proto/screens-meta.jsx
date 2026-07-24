@@ -272,7 +272,7 @@ function InjuryDetailScreen({ go }) {
             flex: 1, padding: '13px 16px', borderRadius: 12,
             background: TM.surface, border: `1px solid ${TM.line}`, color: TM.ink,
             cursor: 'pointer', fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13,
-          }}>Back</button>
+          }}>‹ Back</button>
           <button disabled={!dirty} onClick={saveChanges} style={{
             flex: 1.5, padding: '13px 16px', borderRadius: 12,
             background: dirty ? TM.ink : TM.lineSoft,
@@ -1029,9 +1029,6 @@ function LibraryScreen({ go }) {
                       }}>
                         <div style={{ position: 'absolute', right: -10, bottom: -14, opacity: 0.22 }}>
                           <StrideIcon name={isLeaf ? 'dumbbell' : 'folder'} size={92} color="#fff"/>
-                        </div>
-                        <div style={{ position: 'absolute', left: 10, top: 10, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 11, color: '#fff', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.9 }}>
-                          {isLeaf ? 'Exercises' : 'Group'}
                         </div>
                         <div style={{ position: 'absolute', left: 10, bottom: 8, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 22, color: '#fff', lineHeight: 1 }}>
                           {total}
