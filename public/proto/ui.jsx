@@ -40,6 +40,8 @@ function StrideIcon({ name, size = 22, color = 'currentColor', strokeWidth = 2, 
     skipBack: <><path {...f} d="M19 5v14L9 12l10-7Z"/><rect {...f} x="5" y="5" width="3" height="14" rx="1"/></>,
     flame: <><path {...p} d="M12 21c4 0 7-2.7 7-7 0-3-2-5-3-7-1 2-2 3-4 3-1-3 1-5 1-8-4 1-7 5-7 10 0 5 3 9 6 9Z"/></>,
     trend: <><path {...p} d="M3 17l6-6 4 4 8-8"/><path {...p} d="M14 7h7v7"/></>,
+    // Flexed arm — the Workouts tab (what you actually trained).
+    muscle: <><path {...p} d="M12.4 13a5 5 0 0 1 9.6 2c0 3.9-4 7-9 7-4.1 0-8.2-.8-10.4-2.5-.4-.3-.6-.8-.6-1.4C2.1 12.7 2.6 2 10 2a3 3 0 0 1 3 3 2 2 0 0 1-2 2c-1.1 0-1.6-.4-2-1"/><path {...p} d="M15 14a5 5 0 0 0-7.6 2"/><path {...p} d="M10 6.8C8 8 9.5 13 8 15"/></>,
     dumbbell: <><rect {...p} x="2" y="9" width="3" height="6" rx="1"/><rect {...p} x="19" y="9" width="3" height="6" rx="1"/><rect {...p} x="5" y="7" width="3" height="10" rx="1"/><rect {...p} x="16" y="7" width="3" height="10" rx="1"/><path {...p} d="M8 12h8"/></>,
     folder: <><path {...p} d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></>,
     filter: <><path {...p} d="M3 5h18M6 12h12M10 19h4"/></>,
@@ -173,7 +175,7 @@ function StrideBottomNav({ tab, onTab, onMore }) {
     { id: 'home',     icon: 'home',   label: 'Today'   },
     { id: 'plan',     icon: 'cal',    label: 'Plan'    },
     { id: 'library',  icon: 'book',   label: 'Library' },
-    { id: 'chat',     icon: 'chat',   label: 'AI'      },
+    { id: 'workouts', icon: 'muscle', label: 'Workouts' },
     { id: 'profile',  icon: 'user',   label: 'You'     },
   ];
   return (
@@ -707,7 +709,8 @@ function stridePrScore(metricType, metrics) {
 // `entry` is the active-workout set log {reps, kg, band}. Returns null (no PR) or
 // { exercise_id, metric_type, metrics, score, prevScore, isFirst, beats:{old,new} }.
 function strideDetectPr(ex, entry, existingPrs) {
-  if (ex && ex.section === 'warmup') return null;               // warm-up movements never set PRs
+  // A warm-up CAN be a record — an easy top-set is still a top set. Only the
+  // numbers decide, exactly as for a working set.
   const fk = strideExFk(ex);
   if (fk == null) return null;                                   // mock / unlinked → skip
   const mt = (ex && ex.metricType) || 'load';
@@ -953,6 +956,83 @@ function useSwipeNav(onPrev, onNext) {
   };
 }
 
+
+// ── how much of a session actually got done ──────────────────────────────────
+// A session can be finished early, so "done" is a ratio, not a boolean. Counts
+// only working sets — nobody's effort should be judged by their warm-ups.
+function strideCompletion(workout, log) {
+  const exercises = (workout && workout.exercises) || [];
+  let planned = 0, done = 0;
+  exercises.forEach((ex) => {
+    if (ex.section === 'warmup') return;
+    (ex.sets || []).forEach((st, i) => {
+      if ((st.kind || '') === 'Warm-up') return;
+      planned++;
+      // `done` comes from the API; `log` is the in-memory record of this session.
+      if (st.done || (log && log[`${ex.id}-${i}`])) done++;
+    });
+  });
+  const ratio = planned ? done / planned : 0;
+  return {
+    planned, done, ratio,
+    // Tiers the copy keys off. 'full' keeps today's celebration; the rest stop
+    // congratulating a half session as if it were a whole one.
+    tier: ratio >= 0.9 ? 'full' : ratio >= 0.6 ? 'most' : ratio >= 0.3 ? 'half' : 'short',
+  };
+}
+
+// ── in-progress session ──────────────────────────────────────────────────────
+// The workout player mirrors its position + logged sets into localStorage on every
+// change, so quitting the app mid-session never loses work. Home reads the same
+// record to offer "Resume" instead of a fresh start.
+const STRIDE_PROGRESS_KEY = 'stride_active_progress';
+
+function strideActiveProgress(sessionId) {
+  try {
+    const s = JSON.parse(localStorage.getItem(STRIDE_PROGRESS_KEY) || 'null');
+    if (!s || s.sessionId == null) return null;
+    if (sessionId != null && s.sessionId !== sessionId) return null; // a different session
+    return s;
+  } catch (e) {
+    return null;
+  }
+}
+
+function strideClearProgress() {
+  try { localStorage.removeItem(STRIDE_PROGRESS_KEY); } catch (e) {}
+}
+
+/** How far in: sets logged + total, so the UI can say "4 of 15 sets". */
+function strideProgressStats(workout, progress) {
+  const done = progress && progress.completedSets ? Object.keys(progress.completedSets).length : 0;
+  const total = (workout && workout.exercises || []).reduce((n, ex) => n + ((ex.sets || []).length), 0);
+  return { done, total };
+}
+
+/**
+ * Whether the automatic rest timer is armed: the setting saved with the session
+ * being resumed, else the last one used, else armed.
+ */
+function strideResumeAuto() {
+  const progress = strideActiveProgress();
+  if (progress && typeof progress.auto === 'boolean') return progress.auto;
+  try {
+    const last = localStorage.getItem('stride_auto_rest');
+    if (last !== null) return last === '1';
+  } catch (e) {}
+  return true;
+}
+
+/** True when this session was started and still has work left. */
+function strideIsInProgress(workout) {
+  if (!workout || workout.id == null || workout.status === 'done') return false;
+  const progress = strideActiveProgress(workout.id);
+  const { done, total } = strideProgressStats(workout, progress);
+  if (done > 0 && done < total) return true;
+  // Started on another device / before this install — the server knows.
+  return !!workout.startedAt && done === 0 ? true : false;
+}
+
 Object.assign(window, {
   renderCoachMarkdown, useSwipeNav,
   StrideIcon, BodySilhouette, StrideLineChart, ProgressRing,
@@ -964,4 +1044,7 @@ Object.assign(window, {
   readStrideRequests, saveStrideRequests, addStrideRequest, setRequestStatus, useStrideRequests,
   formatRest, PrInput, PrField, PrEditor, FormQuality, strideFormatPr,
   strideExFk, stridePrScore, strideDetectPr,
+  STRIDE_PROGRESS_KEY, strideActiveProgress, strideClearProgress, strideProgressStats, strideIsInProgress,
+  strideCompletion,
+  strideResumeAuto,
 });

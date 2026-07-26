@@ -18,7 +18,18 @@ function StrideApp({ frame }) {
   const [screen, setScreen] = React.useState(
     window.__strideNeedsOnboarding ? 'onboarding' : (t.tweaks.initialScreen || 'home')
   );
-  const [activeMode, setActiveMode] = React.useState('timer');
+  // Automatic rest timer: armed = logging a set starts its prescribed rest and the
+  // player moves on when it hits 0. Remembered, and restored with a resumed session.
+  const [auto, setAutoState] = React.useState(() => window.strideResumeAuto());
+  const setAuto = (v) => {
+    setAutoState(v);
+    try { localStorage.setItem('stride_auto_rest', v ? '1' : '0'); } catch (e) {}
+  };
+  // Home's Resume enters the player directly — let it restore the session's setting.
+  React.useEffect(() => {
+    window.__strideSetAutoRest = setAuto;
+    return () => { delete window.__strideSetAutoRest; };
+  }, []);
 
   // Lets the bridge force a re-render after live data changes (e.g. a coach
   // proposal is applied) so screens pick up the refreshed STRIDE_* globals.
@@ -26,6 +37,19 @@ function StrideApp({ frame }) {
   React.useEffect(() => {
     window.__strideRerender = () => setDataVersion(v => v + 1);
     return () => { delete window.__strideRerender; };
+  }, []);
+
+  // Lets the bridge navigate from outside React — e.g. a notification tap deep-
+  // linking to the Weight screen (see strideHandleNotifTap in bridge.js). A tap on
+  // cold launch fires before this mounts, so consume any screen it stashed.
+  React.useEffect(() => {
+    window.__strideGo = (s) => go(s);
+    if (window.__stridePendingScreen) {
+      const pending = window.__stridePendingScreen;
+      window.__stridePendingScreen = null;
+      go(pending);
+    }
+    return () => { delete window.__strideGo; };
   }, []);
   const [persona, setPersona] = React.useState({
     key: t.tweaks.personaKey,
@@ -45,12 +69,12 @@ function StrideApp({ frame }) {
   window.STRIDE_CURRENT_PERSONA = persona;
 
   // Map "profile" tab to actual profile-stack root
-  const activeTab = ['home','plan','library','chat','profile'].includes(screen) ? screen
+  const activeTab = ['home','plan','library','workouts','profile'].includes(screen) ? screen
     : screen === 'block-detail' ? 'plan'
-    : screen === 'weight' || screen === 'goals' || screen === 'injuries' || screen === 'injury-detail' || screen === 'ai-coach' || screen === 'spots' ? 'profile'
+    : screen === 'weight' || screen === 'goals' || screen === 'injuries' || screen === 'injury-detail' || screen === 'ai-coach' || screen === 'ai-connect' || screen === 'spots' ? 'profile'
     : null;
 
-  const showBottomNav = ['home','plan','library','chat','profile','weight','goals','injuries','injury-detail','ai-coach','spots','block-detail'].includes(screen);
+  const showBottomNav = ['home','plan','library','workouts','chat','profile','weight','goals','injuries','injury-detail','ai-coach','ai-connect','spots','block-detail'].includes(screen);
 
   let content = null;
   switch (screen) {
@@ -59,17 +83,19 @@ function StrideApp({ frame }) {
     case 'block-detail': content = <BlockDetailScreen go={go} persona={persona}/>; break;
     case 'library':   content = <LibraryScreen go={go}/>; break;
     case 'chat':      content = <ChatScreen go={go} persona={persona}/>; break;
+    case 'workouts':  content = <WorkoutsScreen go={go} persona={persona}/>; break;
     case 'profile':   content = <ProfileScreen go={go} persona={persona} setPersona={handlePersona}/>; break;
     case 'weight':    content = <WeightScreen go={go}/>; break;
     case 'goals':     content = <GoalsScreen go={go}/>; break;
     case 'injuries':  content = <InjuriesScreen go={go}/>; break;
     case 'injury-detail': content = <InjuryDetailScreen go={go}/>; break;
     case 'ai-coach':  content = <AICoachScreen go={go} persona={persona} setPersona={handlePersona}/>; break;
+    case 'ai-connect': content = <AIConnectScreen go={go}/>; break;
     case 'spots':     content = <SpotsScreen go={go}/>; break;
     case 'generate':  content = <GenerateScreen go={go} persona={persona}/>; break;
     case 'onboarding': content = <OnboardingScreen go={go} persona={persona}/>; break;
-    case 'active-config': content = <ActiveConfigScreen go={go} setActiveMode={setActiveMode}/>; break;
-    case 'active':    content = <ActiveWorkoutScreen go={go} mode={activeMode}/>; break;
+    case 'active-config': content = <ActiveConfigScreen go={go}/>; break;
+    case 'active':    content = <ActiveWorkoutScreen go={go} auto={auto} setAuto={setAuto}/>; break;
     case 'summary':   content = <SummaryScreen go={go}/>; break;
     default:          content = <HomeScreen go={go} persona={persona}/>;
   }

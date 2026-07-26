@@ -335,12 +335,11 @@ function ChoiceCard({ active, onClick, icon, title, sub }) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// ACTIVE CONFIG — pick mode + intro
+// ACTIVE CONFIG — session intro (stats + exercise queue)
 // ────────────────────────────────────────────────────────────────────
-function ActiveConfigScreen({ go, setActiveMode }) {
+function ActiveConfigScreen({ go }) {
   // The session being run: one loaded from the plan, else today's. Never deref null.
   const w = window.STRIDE_ACTIVE_WORKOUT || window.STRIDE_TODAYS_WORKOUT;
-  const [mode, setMode] = React.useState('timer');
   React.useEffect(() => { if (!w) go('home'); }, []);
   if (!w) return null;
 
@@ -356,16 +355,6 @@ function ActiveConfigScreen({ go, setActiveMode }) {
             <BigStat label="Est. time" value={`${w.durationMin}m`}/>
           </div>
         </Card>
-
-        <div style={{ marginTop: 22 }}>
-          <SectionHeader title="How do you want to run it?"/>
-          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <ModeCard active={mode === 'timer'} onClick={() => setMode('timer')}
-              icon="timer" title="Managed timer" sub="Auto-tracks rest & advances. Hands-free."/>
-            <ModeCard active={mode === 'manual'} onClick={() => setMode('manual')}
-              icon="skip" title="Step through" sub="Big arrows. You're in control."/>
-          </div>
-        </div>
 
         <div style={{ marginTop: 18 }}>
           <SectionHeader title="Exercise queue"/>
@@ -415,41 +404,19 @@ function ActiveConfigScreen({ go, setActiveMode }) {
     </Screen>
 
       <div style={{ position: 'absolute', left: 20, right: 20, bottom: window.STRIDE_NATIVE ? 'calc(env(safe-area-inset-bottom) + 20px)' : 30, zIndex: 20 }}>
-        <StrideButton variant="accent" block size="lg" icon="play" onClick={() => { setActiveMode(mode); go('active'); }}>
-          {mode === 'timer' ? 'Start managed session' : 'Step through session'}
+        <StrideButton variant="accent" block size="lg" icon="play" onClick={() => go('active')}>
+          Start session
         </StrideButton>
       </div>
     </>
   );
 }
 
-function ModeCard({ active, onClick, icon, title, sub }) {
-  return (
-    <button onClick={onClick} style={{
-      textAlign: 'left', cursor: 'pointer',
-      background: active ? TX.ink : TX.surface, color: active ? '#fff' : TX.ink,
-      border: `1.5px solid ${active ? TX.ink : TX.line}`,
-      borderRadius: 16, padding: 16,
-      display: 'flex', alignItems: 'center', gap: 14,
-    }}>
-      <div style={{ width: 48, height: 48, borderRadius: 14, background: active ? TX.volt : TX.lineSoft, display: 'grid', placeItems: 'center' }}>
-        <StrideIcon name={icon} size={24} color={TX.ink} strokeWidth={2.2}/>
-      </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 16 }}>{title}</div>
-        <div style={{ fontFamily: 'Inter', fontSize: 12, opacity: active ? 0.7 : 0.6, marginTop: 2 }}>{sub}</div>
-      </div>
-      <div style={{ width: 22, height: 22, borderRadius: 22, border: `2px solid ${active ? TX.volt : TX.line}`, background: active ? TX.volt : 'transparent', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-        {active && <StrideIcon name="check" size={12} color={TX.ink} strokeWidth={3.5}/>}
-      </div>
-    </button>
-  );
-}
 
 // ────────────────────────────────────────────────────────────────────
-// ACTIVE WORKOUT — timer or manual
+// ACTIVE WORKOUT — step through, with an optional automatic rest timer
 // ────────────────────────────────────────────────────────────────────
-function ActiveWorkoutScreen({ go, mode }) {
+function ActiveWorkoutScreen({ go, auto, setAuto }) {
   // Guard BEFORE any hooks (the body derefs w.exercises between hooks). w is a
   // stable module global per instance, so the hook count stays consistent.
   const w = window.STRIDE_ACTIVE_WORKOUT || window.STRIDE_TODAYS_WORKOUT;
@@ -466,22 +433,35 @@ function ActiveWorkoutScreen({ go, mode }) {
   })();
   const [exIdx, setExIdx] = React.useState(saved ? (saved.exIdx || 0) : 0);
   const [setIdx, setSetIdx] = React.useState(saved ? (saved.setIdx || 0) : 0);
-  const [resting, setResting] = React.useState(false);
-  const [restLeft, setRestLeft] = React.useState(0);
+  // Rest countdown. `restEndsAt` is a wall-clock timestamp so a backgrounded
+  // webview (locked phone) keeps losing real seconds instead of stalling; while
+  // the timer is disarmed `restLeft` holds the frozen remainder.
+  const [resting, setResting] = React.useState(saved ? !!saved.resting : false);
+  const [restLeft, setRestLeft] = React.useState(saved && saved.restLeft != null ? saved.restLeft : 0);
+  const [restTotal, setRestTotal] = React.useState(saved && saved.restTotal != null ? saved.restTotal : 0);
+  const [restEndsAt, setRestEndsAt] = React.useState(saved && saved.restEndsAt != null ? saved.restEndsAt : null);
   const [completedSets, setCompletedSets] = React.useState(saved ? (saved.completedSets || {}) : {}); // {exId-setIdx: {reps, kg}}
   const [formRatings, setFormRatings] = React.useState(saved ? (saved.formRatings || {}) : {}); // {exId: 1–5 form score}
   const [paused, setPaused] = React.useState(false);
-  const [elapsed, setElapsed] = React.useState(saved && saved.elapsed != null ? saved.elapsed : 8 * 60 + 14); // 8:14 mock
+  const [elapsed, setElapsed] = React.useState(saved && saved.elapsed != null ? saved.elapsed : 0);
   const [detailOpen, setDetailOpen] = React.useState(false);
   const [coachOpen, setCoachOpen] = React.useState(false);
+  const [exitOpen, setExitOpen] = React.useState(false);   // leaving mid-session
 
   // In-workout personal records: detect a new best right after a set is logged,
   // auto-save it (linked to the library exercise), and celebrate it.
   const [earnedPrs, setEarnedPrs] = React.useState([]); // [{exId,name,display,prev,isFirst,savedId}]
   const [activePr, setActivePr] = React.useState(null); // the one currently celebrated
-  const prFired = React.useRef(new Set());              // once per exercise per session
+  const prFired = React.useRef(new Set());              // set keys already checked (double-tap guard)
+  const sessionBest = React.useRef({});                 // exId → { score, earned } best THIS session
   const earnedRef = React.useRef([]);                   // sync mirror for STRIDE_LAST_PRS
   React.useEffect(() => { earnedRef.current = []; window.STRIDE_LAST_PRS = []; }, []);
+
+  // A resumed session restores its own auto setting (the app-level value is just
+  // the last one used, which may have come from a different workout).
+  React.useEffect(() => {
+    if (saved && typeof saved.auto === 'boolean' && saved.auto !== auto) setAuto(saved.auto);
+  }, []);
 
   // Tell the backend the session has started, so progress is tracked server-side
   // (mirrors the local app). Idempotent + fire-and-forget; also runs on resume.
@@ -494,10 +474,11 @@ function ActiveWorkoutScreen({ go, mode }) {
     if (w.id == null || finishedRef.current) return; // mock/demo, or already finished
     try {
       localStorage.setItem(PROGRESS_KEY, JSON.stringify({
-        sessionId: w.id, exIdx, setIdx, completedSets, formRatings, elapsed, ts: Date.now(),
+        sessionId: w.id, exIdx, setIdx, completedSets, formRatings, elapsed,
+        auto, resting, restLeft, restTotal, restEndsAt, ts: Date.now(),
       }));
     } catch (e) {}
-  }, [exIdx, setIdx, completedSets, formRatings]);
+  }, [exIdx, setIdx, completedSets, formRatings, auto, resting, restEndsAt]);
 
   // Live coach edits can shrink the session mid-workout (remove_set /
   // remove_exercise) — clamp the pointers before dereferencing, then sync state.
@@ -513,13 +494,60 @@ function ActiveWorkoutScreen({ go, mode }) {
   const completedSoFar = w.exercises.slice(0, exIdxC).reduce((s, e) => s + e.sets.length, 0) + setIdxC;
   const progress = completedSoFar / totalSets;
 
-  // Rest timer countdown
+  // Rest countdown — ticks off the wall clock while the timer is armed and the
+  // session isn't paused. At zero it just closes: the set pointer already moved
+  // forward when the set was logged, so the next set is waiting underneath.
   React.useEffect(() => {
-    if (!resting || paused) return;
-    if (restLeft <= 0) { setResting(false); return; }
-    const t = setTimeout(() => setRestLeft(s => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [resting, restLeft, paused]);
+    if (!resting || !auto || paused || restEndsAt == null) return undefined;
+    const tick = () => {
+      const left = Math.max(0, Math.round((restEndsAt - Date.now()) / 1000));
+      setRestLeft(left);
+      if (left <= 0) setResting(false);
+    };
+    tick();
+    const t = setInterval(tick, 250);
+    return () => clearInterval(t);
+  }, [resting, auto, paused, restEndsAt]);
+
+  // Arm / disarm the automatic timer. Disarming freezes an open countdown where
+  // it stands (the remaining seconds stay on screen); arming resumes from there.
+  const toggleAuto = () => {
+    if (auto) {
+      if (resting && restEndsAt != null) setRestLeft(Math.max(0, Math.round((restEndsAt - Date.now()) / 1000)));
+      setRestEndsAt(null);
+      setAuto(false);
+    } else {
+      if (resting) setRestEndsAt(Date.now() + Math.max(0, restLeft) * 1000);
+      setPaused(false);   // arming while the session clock is paused would leave it frozen
+      setAuto(true);
+    }
+  };
+
+  // Start this set's rest (only ever called while armed).
+  const startRest = (seconds) => {
+    setRestTotal(seconds);
+    setRestLeft(seconds);
+    setRestEndsAt(Date.now() + seconds * 1000);
+    setResting(true);
+  };
+
+  // ±15s moves both the end time and the ring's full-circle reference, so the
+  // arc can never overshoot.
+  const nudgeRest = (delta) => {
+    setRestTotal(t => Math.max(1, t + delta));
+    if (auto && restEndsAt != null) {
+      setRestEndsAt(e => Math.max(Date.now(), e + delta * 1000));
+    } else {
+      setRestLeft(l => Math.max(0, l + delta));
+    }
+  };
+
+  // Skipping the rest is taking over — the timer disarms until you arm it again.
+  const skipRest = () => {
+    setResting(false);
+    setRestEndsAt(null);
+    setAuto(false);
+  };
 
   // Session elapsed
   React.useEffect(() => {
@@ -535,13 +563,19 @@ function ActiveWorkoutScreen({ go, mode }) {
 
   // Detect + auto-save a personal record from the set just logged. No-op unless the
   // exercise links to the catalogue (live sessions) and the set beats the prior best.
-  const detectPr = (curEx, setPrescription, entry) => {
-    if (!curEx || curEx.section === 'warmup' || (setPrescription && setPrescription.kind === 'Warm-up')) return; // ignore warm-ups
+  const detectPr = (curEx, setPrescription, entry, setKey) => {
+    if (!curEx) return;
+    // Warm-up sets count too: if the numbers beat the record on file, it's a PR
+    // whatever the set is labelled.
     if (!Array.isArray(window.STRIDE_PRS)) return;               // PRs not loaded → avoid false "firsts"
-    if (prFired.current.has(curEx.id)) return;                   // already celebrated this exercise
+    if (prFired.current.has(setKey)) return;                     // this SET already fired (double-tap guard)
     const cand = window.strideDetectPr && window.strideDetectPr(curEx, entry, window.STRIDE_PRS);
     if (!cand) return;
-    prFired.current.add(curEx.id);                               // optimistic — blocks double-tap re-fire
+    // Beat this session's own best too: /personal-records refreshes asynchronously,
+    // so STRIDE_PRS may not carry the record earned two sets ago yet.
+    const bestHere = sessionBest.current[curEx.id];
+    if (bestHere != null && cand.score <= bestHere.score) return;
+    prFired.current.add(setKey);                                 // optimistic — blocks double-tap re-fire
     const pr = {
       exercise_id: cand.exercise_id, label: curEx.name, metric_type: cand.metric_type,
       metrics: cand.metrics, achieved_on: todayIso(), source: 'workout',
@@ -549,23 +583,43 @@ function ActiveWorkoutScreen({ go, mode }) {
     };
     const earned = {
       exId: curEx.id, name: curEx.name, display: window.strideFormatPr(pr),
-      prev: cand.beats.old, isFirst: cand.isFirst, savedId: null, _pr: pr,
+      // A better set later in the same session beats THIS session's record, not
+      // the one it already replaced.
+      prev: bestHere ? bestHere.earned.display : cand.beats.old,
+      isFirst: cand.isFirst && !bestHere, savedId: null, _pr: pr,
     };
+    // One record per exercise per session: a better set supersedes the earlier
+    // one (both in the recap and on the server) instead of stacking up.
+    if (bestHere) {
+      const old = bestHere.earned;
+      if (old.savedId != null && window.__strideDeletePr) window.__strideDeletePr(old.savedId).catch(() => {});
+      old.superseded = true;
+      earnedRef.current = earnedRef.current.filter(e => e !== old);
+    }
+    sessionBest.current[curEx.id] = { score: cand.score, earned };
     earnedRef.current = [...earnedRef.current, earned];
     window.STRIDE_LAST_PRS = earnedRef.current;
     setEarnedPrs(earnedRef.current);
     setActivePr(earned);
     if (window.__strideSavePr) window.__strideSavePr(pr).then(rec => {
-      if (rec && rec.id != null) { earned.savedId = rec.id; setEarnedPrs([...earnedRef.current]); }
+      if (rec && rec.id != null) {
+        earned.savedId = rec.id;
+        // Superseded before the save came back — drop the row we just created.
+        if (earned.superseded && window.__strideDeletePr) window.__strideDeletePr(rec.id).catch(() => {});
+        setEarnedPrs([...earnedRef.current]);
+      }
     }).catch(() => {});
   };
 
   const undoPr = (earned) => {
     if (earned.savedId != null && window.__strideDeletePr) window.__strideDeletePr(earned.savedId).catch(() => {});
+    earned.superseded = true;                                    // in case the save is still in flight
     earnedRef.current = earnedRef.current.filter(e => e !== earned);
     window.STRIDE_LAST_PRS = earnedRef.current;
     setEarnedPrs(earnedRef.current);
-    prFired.current.delete(earned.exId);                         // let a later heavier set re-earn
+    if (sessionBest.current[earned.exId] && sessionBest.current[earned.exId].earned === earned) {
+      delete sessionBest.current[earned.exId];                   // let a later set re-earn
+    }
     setActivePr(a => (a === earned ? null : a));
   };
 
@@ -589,19 +643,13 @@ function ActiveWorkoutScreen({ go, mode }) {
       if (entry.band) metrics.band_kg = entry.band;
       window.__strideLogSet(w.id, curSet.id, { is_done: true, metrics });
     }
-    detectPr(ex, curSet, entry); // celebrate a PR before advancing (works in timer & manual modes)
+    detectPr(ex, curSet, entry, key); // celebrate a PR before advancing
     // Advance
     if (setIdxC < ex.sets.length - 1) {
-      if (mode === 'timer' && curSet.rest) {
-        setResting(true);
-        setRestLeft(curSet.rest);
-      }
+      if (auto && curSet.rest) startRest(curSet.rest);
       setSetIdx(setIdxC + 1);
     } else if (exIdxC < w.exercises.length - 1) {
-      if (mode === 'timer' && curSet.rest) {
-        setResting(true);
-        setRestLeft(curSet.rest);
-      }
+      if (auto && curSet.rest) startRest(curSet.rest);
       setExIdx(exIdxC + 1);
       setSetIdx(0);
     } else {
@@ -609,6 +657,7 @@ function ActiveWorkoutScreen({ go, mode }) {
       // Date-stamped so Home's done card self-expires tomorrow.
       const iso = todayIso();
       try { localStorage.setItem('stride_today_done', iso); } catch (e) {}
+      window.STRIDE_LAST_WORKOUT = w;               // the summary reads THIS session
       window.STRIDE_LAST_FORM_RATINGS = formRatings; // summary reads per-exercise form scores
       window.STRIDE_LAST_SET_LOG = nextLog; // summary reads actual logged reps/kg
       // Persist the log so Recap works after leaving/reopening the app.
@@ -622,13 +671,24 @@ function ActiveWorkoutScreen({ go, mode }) {
     }
   };
 
-  const goPrev = () => {
-    if (setIdxC > 0) setSetIdx(setIdxC - 1);
-    else if (exIdxC > 0) {
-      setExIdx(exIdxC - 1);
-      setSetIdx(w.exercises[exIdxC - 1].sets.length - 1);
-    }
+  // Finish the session where it stands — the sets you logged count, the rest simply
+  // don't. Same bookkeeping as reaching the end naturally (backend complete, Recap
+  // log persisted, resume state cleared), so the summary and Home agree.
+  const finishEarly = () => {
+    finishedRef.current = true;
+    const iso = todayIso();
+    window.STRIDE_LAST_WORKOUT = w;              // the summary reads THIS session
+    window.STRIDE_LAST_SET_LOG = completedSets;
+    window.STRIDE_LAST_FORM_RATINGS = formRatings;
+    try {
+      localStorage.setItem('stride_today_done', iso);
+      localStorage.setItem('stride_last_log', JSON.stringify({ sessionId: w.id || null, log: completedSets, ratings: formRatings, ts: iso }));
+    } catch (e) {}
+    window.strideClearProgress();
+    if (w.id != null && window.__strideCompleteSession) window.__strideCompleteSession(w.id, {});
+    go('summary');
   };
+
   const goNext = () => {
     if (setIdxC < ex.sets.length - 1) setSetIdx(setIdxC + 1);
     else if (exIdxC < w.exercises.length - 1) { setExIdx(exIdxC + 1); setSetIdx(0); }
@@ -640,11 +700,15 @@ function ActiveWorkoutScreen({ go, mode }) {
   const goBack = () => {
     if (!canGoBack) return;
     setResting(false);
+    setRestEndsAt(null);
     let pExIdx = exIdxC, pSetIdx = setIdxC;
     if (setIdxC > 0) pSetIdx = setIdxC - 1;
     else { pExIdx = exIdxC - 1; pSetIdx = w.exercises[exIdxC - 1].sets.length - 1; }
+    // Step back to REVIEW or redo a set — the logged reps/kg stay (the panel
+    // prefills them, and logging again overwrites). Deleting them here is how a
+    // whole set's work used to vanish on a mis-tap of the back arrow.
     const key = `${w.exercises[pExIdx].id}-${pSetIdx}`;
-    setCompletedSets(prev => { const n = { ...prev }; delete n[key]; return n; });
+    prFired.current.delete(key);                                 // redoing the set may earn a PR again
     setExIdx(pExIdx);
     setSetIdx(pSetIdx);
   };
@@ -652,13 +716,30 @@ function ActiveWorkoutScreen({ go, mode }) {
   const fmt = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
 
   return (
-    <div style={{ background: TX.ink, color: '#fff', width: '100%', height: '100%', position: 'relative', overflow: 'hidden', paddingTop: window.STRIDE_SAFE_TOP }}>
+    <div style={{
+      background: TX.ink, color: '#fff', width: '100%', height: '100%', position: 'relative', overflow: 'hidden',
+      paddingTop: window.STRIDE_SAFE_TOP, boxSizing: 'border-box',
+      display: 'flex', flexDirection: 'column',
+    }}>
       {/* Top bar */}
       <div style={{ padding: '14px 18px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <IconBtn icon="close" onClick={() => go('home')} bg="#222" color="#fff" border="#333" size={36}/>
+        <IconBtn icon="close" onClick={() => setExitOpen(true)} bg="#222" color="#fff" border="#333" size={36}/>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>{mode === 'timer' ? 'Managed' : 'Step through'}{w.kind ? ` · ${w.kind}` : ''}</div>
-          <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 16, marginTop: 2 }}>{fmt(elapsed)}</div>
+          {/* Arms the automatic rest timer: on = logging a set starts its rest. */}
+          <button
+            onClick={toggleAuto}
+            aria-label="Automatic rest timer"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer',
+              background: auto ? TX.volt : '#ffffff12', border: `1px solid ${auto ? TX.volt : '#333'}`,
+              borderRadius: 999, padding: '3px 9px',
+              fontFamily: 'Inter', fontSize: 10, color: auto ? TX.ink : '#bbb',
+              textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700,
+            }}>
+            <StrideIcon name={auto ? 'timer' : 'pause'} size={11} color={auto ? TX.ink : '#bbb'}/>
+            {auto ? window.t('Auto rest') : window.t('Auto off')}
+          </button>
+          <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 16, marginTop: 2 }}>{fmt(elapsed)}{w.kind ? ` · ${w.kind}` : ''}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setCoachOpen(true)} aria-label="Chat with coach" style={{
@@ -690,16 +771,18 @@ function ActiveWorkoutScreen({ go, mode }) {
       </div>
 
       {/* Resting screen */}
-      {resting && mode === 'timer' && (
+      {resting && (
         <RestPanel
           left={restLeft}
-          total={curSet.rest}
+          total={restTotal}
+          paused={!auto}
+          onTogglePause={toggleAuto}
           next={ex.sets[setIdxC]}
           nextEx={ex.name}
           nextHold={strideIsHold(ex)}
-          onSkip={() => { setResting(false); }}
-          onAdd={() => setRestLeft(r => r + 15)}
-          onSub={() => setRestLeft(r => Math.max(0, r - 15))}
+          onSkip={skipRest}
+          onAdd={() => nudgeRest(15)}
+          onSub={() => nudgeRest(-15)}
           onUndo={canGoBack ? goBack : null}
           pr={activePr}
           onUndoPr={undoPr}
@@ -707,7 +790,7 @@ function ActiveWorkoutScreen({ go, mode }) {
         />
       )}
 
-      {/* No-rest celebration (manual mode, or timer sets without a rest) */}
+      {/* No-rest celebration (timer disarmed, or a set with no prescribed rest) */}
       {!resting && activePr && (
         <PrCelebration variant="toast" earned={activePr} onUndo={undoPr} onDismiss={() => setActivePr(null)}/>
       )}
@@ -716,17 +799,36 @@ function ActiveWorkoutScreen({ go, mode }) {
         <ActiveExercisePanel
           ex={ex}
           setIdx={setIdxC}
-          mode={mode}
           completedSets={completedSets}
           formScore={formRatings[ex.id]}
           onRateForm={(v) => setFormRatings((prev) => ({ ...prev, [ex.id]: v }))}
           onComplete={completeSet}
-          onPrev={goPrev}
           onNext={goNext}
           onBack={goBack}
           canGoBack={canGoBack}
+          canGoNext={exIdxC < w.exercises.length - 1 || setIdxC < ex.sets.length - 1}
           onOpenDetails={() => setDetailOpen(true)}
+          onFinish={() => setExitOpen(true)}
         />
+      )}
+
+      {/* Leaving mid-session: keep going, pause it for later, or finish it here. */}
+      {exitOpen && window.Sheet && (
+        <window.Sheet title={window.t('Leave or finish?')} onClose={() => setExitOpen(false)}>
+          <div style={{ padding: '4px 0 8px' }}>
+            <div style={{ fontFamily: 'Inter', fontSize: 13.5, lineHeight: 1.55, color: TX.ink2, marginBottom: 16 }}>
+              {window.t('{done} of {total} sets logged. Leave it open and pick up from the Today card, or finish now — what you logged counts, the rest is simply not counted.', {
+                done: Object.keys(completedSets).length,
+                total: w.exercises.reduce((n, e) => n + e.sets.length, 0),
+              })}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <StrideButton variant="volt" icon="play" block onClick={() => setExitOpen(false)}>Keep training</StrideButton>
+              <StrideButton variant="ghost" icon="pause" block onClick={() => { setExitOpen(false); go('home'); }}>Leave — resume later</StrideButton>
+              <StrideButton variant="primary" icon="check" block onClick={() => { setExitOpen(false); finishEarly(); }}>Finish early</StrideButton>
+            </div>
+          </div>
+        </window.Sheet>
       )}
 
       {detailOpen && window.Sheet && (
@@ -745,7 +847,7 @@ function ActiveWorkoutScreen({ go, mode }) {
 }
 
 // A just-earned personal record. `variant='banner'` sits inside the rest screen;
-// `variant='toast'` floats over the exercise panel (manual mode). Auto-dismisses.
+// `variant='toast'` floats over the exercise panel when no rest runs. Auto-dismisses.
 function PrCelebration({ earned, variant, onUndo, onDismiss }) {
   React.useEffect(() => {
     const t = setTimeout(onDismiss, 6000);
@@ -785,18 +887,22 @@ function PrCelebration({ earned, variant, onUndo, onDismiss }) {
   return <div style={{ width: '100%' }}>{inner}</div>;
 }
 
-function RestPanel({ left, total, next, nextEx, nextHold, onSkip, onAdd, onSub, onUndo, pr, onUndoPr, onDismissPr }) {
-  const pct = total ? left / total : 0;
+function RestPanel({ left, total, paused, onTogglePause, next, nextEx, nextHold, onSkip, onAdd, onSub, onUndo, pr, onUndoPr, onDismissPr }) {
+  const pct = total ? Math.max(0, Math.min(1, left / total)) : 0;
   const stepBtn = { width: 60, height: 60, borderRadius: 14, background: '#222', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0 };
   return (
-    <div style={{ padding: '12px 18px 24px', display: 'flex', flexDirection: 'column', height: 'calc(100% - 92px)' }}>
+    <div style={{ padding: '12px 18px 24px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* Middle — timer + up next */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
-        <div style={{ fontFamily: 'Inter', fontSize: 12, color: TX.volt, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 800 }}>Rest</div>
-        <div style={{ position: 'relative', width: 230, height: 230 }}>
+        <div style={{ fontFamily: 'Inter', fontSize: 12, color: paused ? '#888' : TX.volt, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 800 }}>Rest</div>
+        {/* The whole ring is the pause/resume control — no extra button to hunt for. */}
+        <button
+          onClick={onTogglePause}
+          aria-label={paused ? 'Resume the rest timer' : 'Pause the rest timer'}
+          style={{ position: 'relative', width: 230, height: 230, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
           <svg width="230" height="230" style={{ transform: 'rotate(-90deg)' }}>
             <circle cx="115" cy="115" r="104" stroke="#222" strokeWidth="6" fill="none"/>
-            <circle cx="115" cy="115" r="104" stroke={TX.volt} strokeWidth="6" fill="none"
+            <circle cx="115" cy="115" r="104" stroke={paused ? '#555' : TX.volt} strokeWidth="6" fill="none"
               strokeLinecap="round"
               strokeDasharray={2 * Math.PI * 104}
               strokeDashoffset={2 * Math.PI * 104 * (1 - pct)}
@@ -804,13 +910,20 @@ function RestPanel({ left, total, next, nextEx, nextHold, onSkip, onAdd, onSub, 
           </svg>
           <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 80, color: '#fff', letterSpacing: -3, lineHeight: 1 }}>
+              <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 80, color: paused ? '#888' : '#fff', letterSpacing: -3, lineHeight: 1 }}>
                 {Math.floor(left/60)}:{String(left % 60).padStart(2, '0')}
               </div>
-              <div style={{ fontFamily: 'Inter', fontSize: 12, color: '#888', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, marginTop: 6 }}>of {Math.floor(total/60)}:{String(total % 60).padStart(2,'0')}</div>
+              {paused ? (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                  <StrideIcon name="play" size={14} color={TX.volt}/>
+                  <span style={{ fontFamily: 'Inter', fontSize: 12, color: TX.volt, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>Paused · tap to resume</span>
+                </div>
+              ) : (
+                <div style={{ fontFamily: 'Inter', fontSize: 12, color: '#888', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, marginTop: 6 }}>of {Math.floor(total/60)}:{String(total % 60).padStart(2,'0')}</div>
+              )}
             </div>
           </div>
-        </div>
+        </button>
 
         {pr && <PrCelebration variant="banner" earned={pr} onUndo={onUndoPr} onDismiss={onDismissPr}/>}
 
@@ -888,7 +1001,7 @@ function strideSessionVolume(w, log, bw) {
   return Math.round(vol);
 }
 
-function ActiveExercisePanel({ ex, setIdx, mode, completedSets, formScore, onRateForm, onComplete, onPrev, onNext, onBack, canGoBack, onOpenDetails }) {
+function ActiveExercisePanel({ ex, setIdx, completedSets, formScore, onRateForm, onComplete, onNext, onBack, canGoBack, canGoNext, onOpenDetails, onFinish }) {
   const curSet = ex.sets[setIdx];
   const isHold = strideIsHold(ex);
   const isBanded = strideIsBanded(ex);
@@ -908,7 +1021,7 @@ function ActiveExercisePanel({ ex, setIdx, mode, completedSets, formScore, onRat
   }, [setIdx, ex.id]);
 
   return (
-    <div style={{ padding: '20px 18px 24px', display: 'flex', flexDirection: 'column', height: 'calc(100% - 92px)' }}>
+    <div style={{ padding: '20px 18px 24px', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* Exercise header — tap to open details */}
       <div style={{ textAlign: 'center', padding: '8px 0' }}>
         <Chip bg="#ffffff14" ink={TX.volt} color={TX.volt} dot style={{ textTransform: 'uppercase' }}>{ex.section === 'warmup' ? window.t('Warm-up') : curSet.kind}</Chip>
@@ -929,14 +1042,14 @@ function ActiveExercisePanel({ ex, setIdx, mode, completedSets, formScore, onRat
         {(hasWeight || isBanded) && <div style={{ width: 120, height: 1, background: '#222' }}/>}
         {isBanded && hasWeight ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-            <NumberStepper label="kg" value={kg} step={2.5} onChange={setKg} size={40}/>
+            <NumberStepper label="kg" value={kg} step={0.1} onChange={setKg} size={40}/>
             <div style={{ width: 1, height: 56, background: '#222' }}/>
-            <NumberStepper label="Band kg" value={band} step={2.5} onChange={setBand} size={40}/>
+            <NumberStepper label="Band kg" value={band} step={0.1} onChange={setBand} size={40}/>
           </div>
         ) : isBanded ? (
-          <NumberStepper label="Band kg" value={band} step={2.5} onChange={setBand}/>
+          <NumberStepper label="Band kg" value={band} step={0.1} onChange={setBand}/>
         ) : hasWeight ? (
-          <NumberStepper label="kg" value={kg} step={2.5} onChange={setKg}/>
+          <NumberStepper label="kg" value={kg} step={0.1} onChange={setKg}/>
         ) : null}
       </div>
 
@@ -974,7 +1087,16 @@ function ActiveExercisePanel({ ex, setIdx, mode, completedSets, formScore, onRat
 
       {/* Sets timeline — directly above the controls */}
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>{isHold ? 'Sets · secs × kg' : 'Sets · reps × kg'}</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ width: 92, flexShrink: 0 }}/>
+          <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>{isHold ? 'Sets · secs × kg' : 'Sets · reps × kg'}</div>
+          {/* Stop here and keep what's logged — no need to walk the rest of the plan. */}
+          <button onClick={onFinish} style={{
+            width: 92, flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap',
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            fontFamily: 'Inter', fontSize: 10, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: 0.4,
+          }}>Finish early</button>
+        </div>
         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
           {ex.sets.map((s, i) => {
             const done = completedSets[`${ex.id}-${i}`];
@@ -1008,56 +1130,81 @@ function ActiveExercisePanel({ ex, setIdx, mode, completedSets, formScore, onRat
         </div>
       </div>
 
-      {/* CTA row */}
-      {mode === 'timer' ? (
-        <div style={{ display: 'flex', gap: 8 }}>
-          {canGoBack && (
-            <button onClick={onBack} aria-label="Back a set" style={{
-              width: 60, height: 60, borderRadius: 14, background: '#222', border: 'none',
-              display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0,
-            }}>
-              <StrideIcon name="arrowLeft" size={26} color="#fff"/>
-            </button>
-          )}
-          <StrideButton variant="volt" size="lg" icon="check" style={{ flex: 1 }} onClick={() => onComplete({ reps, kg, band: isBanded ? band : null })}>
-            Set complete
-          </StrideButton>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onPrev} style={{
+      {/* CTA row — one flow: step back, log, step forward. The arrows only move
+          the pointer; a set is never counted until "Log set". */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {canGoBack && (
+          <button onClick={onBack} aria-label="Back a set" style={{
             width: 60, height: 60, borderRadius: 14, background: '#222', border: 'none',
-            display: 'grid', placeItems: 'center', cursor: 'pointer',
+            display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0,
           }}>
             <StrideIcon name="arrowLeft" size={26} color="#fff"/>
           </button>
-          <StrideButton variant="volt" size="lg" icon="check" style={{ flex: 1 }} onClick={() => onComplete({ reps, kg, band: isBanded ? band : null })}>Log set</StrideButton>
-          <button onClick={onNext} style={{
+        )}
+        <StrideButton variant="volt" size="lg" icon="check" style={{ flex: 1 }} onClick={() => onComplete({ reps, kg, band: isBanded ? band : null })}>
+          Log set
+        </StrideButton>
+        {canGoNext && (
+          <button onClick={onNext} aria-label="Next set" style={{
             width: 60, height: 60, borderRadius: 14, background: '#222', border: 'none',
-            display: 'grid', placeItems: 'center', cursor: 'pointer',
+            display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0,
           }}>
             <StrideIcon name="arrowRight" size={26} color="#fff"/>
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
+// Number field with ± buttons AND a typeable value: tapping the number opens the
+// numeric keyboard so an odd weight (37.4 kg) doesn't need 74 taps of the stepper.
+// While typing, the raw text is kept as-is (so "12." and "" stay editable) and only
+// committed on blur/Enter; the steppers always work off the numeric value.
 function NumberStepper({ label, value, onChange, step = 1, unit, size = 64 }) {
+  const [draft, setDraft] = React.useState(null);          // null = not editing
+  const decimals = step < 1 ? 1 : 0;
+  // Weights land on 0.1 kg; reps/seconds stay whole numbers.
+  const clean = (n) => Math.max(0, decimals ? Math.round(n * 10) / 10 : Math.round(n));
+  const shown = value % 1 === 0 ? value : value.toFixed(decimals);
+
+  const commit = (raw) => {
+    setDraft(null);
+    const n = parseFloat(String(raw).replace(',', '.'));   // SK keyboards type a comma
+    if (!isNaN(n)) onChange(clean(n));
+  };
+
   return (
     <div style={{ textAlign: 'center' }}>
       <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: 700, marginBottom: 6 }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button onClick={() => onChange(Math.max(0, value - step))} style={{
+        <button onClick={() => onChange(clean(value - step))} style={{
           width: 36, height: 36, borderRadius: 12, border: '1px solid #333', background: '#1a1a1a', display: 'grid', placeItems: 'center', cursor: 'pointer',
         }}>
           <StrideIcon name="minus" size={16} color="#fff"/>
         </button>
-        <div style={{ minWidth: size >= 64 ? 72 : 52, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: size, color: '#fff', letterSpacing: size >= 64 ? -2 : -1, lineHeight: 1 }}>
-          {unit || (value % 1 === 0 ? value : value.toFixed(1))}
-        </div>
-        <button onClick={() => onChange(value + step)} style={{
+        {unit ? (
+          <div style={{ minWidth: size >= 64 ? 72 : 52, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: size, color: '#fff', letterSpacing: size >= 64 ? -2 : -1, lineHeight: 1 }}>
+            {unit}
+          </div>
+        ) : (
+          <input
+            type="text" inputMode="decimal" enterKeyHint="done"
+            aria-label={label}
+            value={draft != null ? draft : String(shown)}
+            onFocus={(e) => { setDraft(String(shown)); e.target.select(); }}
+            onChange={(e) => setDraft(e.target.value.replace(/[^0-9.,]/g, ''))}
+            onBlur={(e) => commit(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+            style={{
+              width: size >= 64 ? 96 : 64, padding: 0, textAlign: 'center',
+              background: 'transparent', border: 'none', borderBottom: '1px dashed #3a3a3a', outline: 'none',
+              fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: size, color: '#fff',
+              letterSpacing: size >= 64 ? -2 : -1, lineHeight: 1.1, WebkitAppearance: 'none',
+            }}
+          />
+        )}
+        <button onClick={() => onChange(clean(value + step))} style={{
           width: 36, height: 36, borderRadius: 12, border: '1px solid #333', background: '#1a1a1a', display: 'grid', placeItems: 'center', cursor: 'pointer',
         }}>
           <StrideIcon name="plus" size={16} color="#fff"/>
@@ -1067,7 +1214,7 @@ function NumberStepper({ label, value, onChange, step = 1, unit, size = 64 }) {
   );
 }
 
-// Read-only target value (managed mode — the coach prescribes these).
+// Read-only target value (the coach prescribes these).
 function TargetReadout({ value, unit }) {
   return (
     <div style={{ textAlign: 'center' }}>
@@ -1077,11 +1224,13 @@ function TargetReadout({ value, unit }) {
   );
 }
 
-// Look up an exercise in the library tree by name (enriches with muscles/equipment).
-function findLibraryExercise(name) {
+// Look up an exercise in the library tree (enriches with muscles/equipment/video).
+// Session exercises carry the catalog id (`exerciseId`) — match on that first and
+// only fall back to the name, which can drift (renames, AI-worded variants).
+function findLibraryExercise(name, id) {
   const walk = (node) => {
     if (node.exercises) {
-      const hit = node.exercises.find((e) => e.name === name);
+      const hit = node.exercises.find((e) => (id != null && e.id === id) || e.name === name);
       if (hit) return hit;
     }
     if (node.children) {
@@ -1092,9 +1241,13 @@ function findLibraryExercise(name) {
   try { return walk(window.STRIDE_LIBRARY) || null; } catch (e) { return null; }
 }
 
-// Exercise details slideover, shown during an active session.
-function ActiveExerciseDetail({ ex }) {
-  const lib = findLibraryExercise(ex.name) || {};
+// Exercise details slideover. Used during an active session AND from the session
+// detail sheet (planned/done sessions), so everything below tolerates a session
+// exercise with no set list — then it degrades to "what is this movement".
+function ActiveExerciseDetail({ ex, setsLabel }) {
+  const lib = findLibraryExercise(ex.name, ex.exerciseId) || {};
+  const [videoOpen, setVideoOpen] = React.useState(false);
+  const sets = ex.sets || [];
   const muscles = [lib.primary, ...((lib.secondary || '').split(/[·,]/).map((s) => s.trim()).filter(Boolean))].filter(Boolean);
   const Label = ({ children }) => (
     <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 11, color: TX.ink3, textTransform: 'uppercase', letterSpacing: 1.2, margin: '0 0 8px' }}>{children}</div>
@@ -1105,16 +1258,34 @@ function ActiveExerciseDetail({ ex }) {
       <div style={{ flex: 1, textAlign: 'right', fontFamily: 'Inter', fontSize: 13, fontWeight: 600, color: TX.ink }}>{children}</div>
     </div>
   );
+  const hasVideo = !!lib.video;
   return (
     <div style={{ padding: '4px 0 0' }}>
-      {/* Hero */}
-      <div style={{ height: 150, borderRadius: 16, background: `linear-gradient(135deg, ${TX.ink}, #2a2a2a)`, marginBottom: 14, position: 'relative', overflow: 'hidden' }}>
+      {/* Hero — tap to watch the form clip when the catalog has one */}
+      <div
+        onClick={hasVideo ? () => setVideoOpen(true) : undefined}
+        role={hasVideo ? 'button' : undefined}
+        style={{
+          height: 150, borderRadius: 16, background: `linear-gradient(135deg, ${TX.ink}, #2a2a2a)`, marginBottom: 14,
+          position: 'relative', overflow: 'hidden', cursor: hasVideo ? 'pointer' : 'default',
+        }}>
         <div style={{ position: 'absolute', right: -28, bottom: -18, opacity: 0.18 }}>
           <StrideIcon name="dumbbell" size={150} color={TX.volt}/>
         </div>
         <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.04) 0 6px, transparent 6px 14px)' }}/>
+        {hasVideo && (
+          <div style={{
+            position: 'absolute', top: '46%', left: '50%', transform: 'translate(-50%, -50%)',
+            width: 54, height: 54, borderRadius: 27, background: 'rgba(0,0,0,0.35)',
+            border: '1.5px solid rgba(255,255,255,0.55)', display: 'grid', placeItems: 'center',
+          }}>
+            <div style={{ marginLeft: 3 }}><StrideIcon name="play" size={24} color="#fff"/></div>
+          </div>
+        )}
         <div style={{ position: 'absolute', left: 14, bottom: 12, right: 14 }}>
-          <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#fff', opacity: 0.7, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>{ex.tag || 'Exercise'}</div>
+          <div style={{ fontFamily: 'Inter', fontSize: 10, color: '#fff', opacity: 0.7, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700 }}>
+            {hasVideo ? window.t('Tap to watch · Form video') : (ex.tag || 'Exercise')}
+          </div>
           <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 22, color: '#fff', marginTop: 4, lineHeight: 1.1 }}>{ex.name}</div>
         </div>
       </div>
@@ -1125,7 +1296,16 @@ function ActiveExerciseDetail({ ex }) {
         {lib.equip && <SpecRow label="Equipment" first={muscles.length === 0}>{lib.equip}</SpecRow>}
         {ex.tag && <SpecRow label="Type">{ex.tag}</SpecRow>}
         {lib.diff && <SpecRow label="Difficulty">{lib.diff}</SpecRow>}
+        {/* Sessions we couldn't load set-by-set still show their prescription. */}
+        {!sets.length && ex.plannedSummary && <SpecRow label="Planned">{ex.plannedSummary}</SpecRow>}
       </div>
+
+      {/* What the movement is (catalog description — freestyle tricks carry their own) */}
+      {lib.description && (
+        <div style={{ fontFamily: 'Inter', fontSize: 13.5, lineHeight: 1.55, color: TX.ink2, marginBottom: 16 }}>
+          {lib.description}
+        </div>
+      )}
 
       {/* Coach note */}
       {ex.note && (
@@ -1137,10 +1317,11 @@ function ActiveExerciseDetail({ ex }) {
         </>
       )}
 
-      {/* Today's prescription */}
-      <Label>Today's sets</Label>
+      {/* Prescription — "Today's sets" in the player, "Planned sets" when previewing */}
+      {sets.length > 0 && (<>
+      <Label>{setsLabel || window.t("Today's sets")}</Label>
       <div style={{ borderRadius: 14, overflow: 'hidden', background: TX.surface, border: `1px solid ${TX.line}`, marginBottom: 8 }}>
-        {ex.sets.map((s, i) => (
+        {sets.map((s, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderTop: i ? `1px solid ${TX.lineSoft}` : 'none' }}>
             <div style={{ width: 26, height: 26, borderRadius: 13, background: TX.ink, color: '#fff', display: 'grid', placeItems: 'center', fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 11, flexShrink: 0 }}>{i + 1}</div>
             <div style={{ flex: 1, fontFamily: 'Inter', fontSize: 12.5, fontWeight: 700, color: s.kind === 'Working' ? TX.ink : TX.ink3 }}>{s.kind}</div>
@@ -1151,6 +1332,9 @@ function ActiveExerciseDetail({ ex }) {
           </div>
         ))}
       </div>
+      </>)}
+
+      {videoOpen && <FormVideoOverlay ex={lib} onClose={() => setVideoOpen(false)}/>}
     </div>
   );
 }
@@ -1235,14 +1419,27 @@ function SessionCoachChat({ workout, ex, exIdx, setIdx, onClose }) {
 // ────────────────────────────────────────────────────────────────────
 // SUMMARY — post-workout
 // ────────────────────────────────────────────────────────────────────
+// Header copy scaled to what was logged — "Nice work." on two of seventeen sets
+// reads as the app not paying attention.
+const SUMMARY_TITLE = {
+  full: 'Nice work.',
+  most: 'Good session.',
+  half: 'Half done.',
+  short: 'Short one.',
+};
+
 function SummaryScreen({ go }) {
   // The session that was actually PLAYED — not today's scheduled one. Running a
   // different session (e.g. yesterday's Pull) must summarise that session.
-  const w = window.STRIDE_ACTIVE_WORKOUT || window.STRIDE_TODAYS_WORKOUT;
+  // Captured ONCE: finishing refreshes the STRIDE_* globals (the session is now
+  // 'done', and one whose scheduled_date lags leaves STRIDE_TODAYS_WORKOUT null),
+  // and re-reading them mid-summary blanked the screen.
+  const [w] = React.useState(() =>
+    window.STRIDE_LAST_WORKOUT || window.STRIDE_ACTIVE_WORKOUT || window.STRIDE_TODAYS_WORKOUT || null);
   const [feel, setFeel] = React.useState(4);
   const [rpe, setRpe] = React.useState(7);
   const [notes, setNotes] = React.useState('');
-  React.useEffect(() => { if (!w) go('home'); }, []);
+  React.useEffect(() => { if (!w) go('home'); }, [w]);
   if (!w) return null;
 
   // The in-memory log dies with the JS context — Recap from Home after
@@ -1269,7 +1466,7 @@ function SummaryScreen({ go }) {
   return (
     <>
     <Screen>
-      <StrideHeader title="Nice work." kicker={`${w.title || w.block || ''}${w.durationMin ? ` · ${w.durationMin} min` : ''}`} right={<IconBtn icon="close" onClick={() => go('home')}/>}/>
+      <StrideHeader title={SUMMARY_TITLE[window.strideCompletion(w, log).tier]} kicker={`${w.title || w.block || ''}${w.durationMin ? ` · ${w.durationMin} min` : ''}`} right={<IconBtn icon="close" onClick={() => go('home')}/>}/>
       <div style={{ padding: '0 20px' }}>
         <Card dark style={{ padding: 22, position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', right: -50, top: -40, width: 180, height: 180, borderRadius: 180, background: TX.volt, opacity: 0.18, filter: 'blur(40px)' }}/>
@@ -1449,9 +1646,72 @@ function strideChatGreeting() {
   return { who: 'ai', text: window.t("Morning. I'm your coach — ask me to adjust today's session (go lighter, swap a lift, add a set) or flag a niggle and I'll program around it.") };
 }
 
+// In-chat model switcher — only for BYOK users whose provider has >1 model.
+// Switching persists on the conversation (bridge → PATCH .../model), so the
+// choice sticks for later turns.
+function StrideChatModelBar() {
+  const ai = window.STRIDE_AI || {};
+  const conn = ai.connection || {};
+  const catalog = ai.catalog || { providers: [] };
+  const coach = window.__strideCoach;
+  const [open, setOpen] = React.useState(false);
+
+  const cfg = (catalog.providers || []).find((p) => p.key === conn.provider);
+  const models = (cfg && cfg.models) || [];
+  const initial = (coach && coach.getModel && coach.getModel()) || conn.model || (cfg && cfg.default) || (models[0] && models[0].id) || null;
+  const [model, setModel] = React.useState(initial);
+
+  if (!conn.provider || conn.provider === 'free' || models.length < 2) return null;
+
+  const current = models.find((m) => m.id === model);
+  const pick = (id) => {
+    setModel(id);
+    setOpen(false);
+    if (coach && coach.setModel) coach.setModel(id);
+  };
+
+  return (
+    <div style={{ padding: '0 20px 10px', position: 'relative' }}>
+      <button onClick={() => setOpen((o) => !o)} style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+        background: TX.surface, border: `1px solid ${TX.line}`, borderRadius: 999, padding: '6px 12px',
+        fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 12, color: TX.ink,
+      }}>
+        <StrideIcon name="sparkles" size={13} color={TX.ink2}/>
+        <span>{current ? current.label : model}</span>
+        <span style={{ color: TX.ink3, fontSize: 10 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 20, zIndex: 20, minWidth: 200,
+          background: TX.surface, border: `1px solid ${TX.line}`, borderRadius: 12,
+          boxShadow: '0 12px 30px rgba(0,0,0,0.18)', overflow: 'hidden',
+        }}>
+          {models.map((m) => (
+            <button key={m.id} onClick={() => pick(m.id)} style={{
+              display: 'flex', width: '100%', alignItems: 'center', gap: 8, cursor: 'pointer',
+              background: m.id === model ? TX.lineSoft : 'transparent', border: 'none',
+              padding: '11px 14px', textAlign: 'left',
+              borderBottom: `1px solid ${TX.lineSoft}`,
+            }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13.5, color: TX.ink }}>{m.label}</div>
+                {m.tier && <div style={{ fontFamily: 'Inter', fontSize: 10.5, color: TX.ink3, textTransform: 'capitalize' }}>{window.t(m.tier)}</div>}
+              </div>
+              {m.id === model && <StrideIcon name="check" size={15} color={TX.ink}/>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ChatScreen({ go, persona }) {
   const [messages, setMessages] = React.useState(window.STRIDE_CHAT_SEED);
   const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [changesOpen, setChangesOpen] = React.useState(false);   // "what I changed"
+  const [changeSession, setChangeSession] = React.useState(null);
   const [input, setInput] = React.useState(() => {
     const pre = window.__stridePrefillChat;
     window.__stridePrefillChat = null;
@@ -1506,13 +1766,17 @@ function ChatScreen({ go, persona }) {
 
   return (
     <Screen padded={false} style={{ paddingBottom: 0, display: 'flex', flexDirection: 'column' }}>
-      <StrideHeader title={persona.name} right={
+      <StrideHeader title={persona.name} back onBack={() => go('home')} right={
         <>
+          <IconBtn icon="sparkles" onClick={() => setChangesOpen(true)}/>
           <IconBtn icon="search" onClick={() => setSearching(s => !s)}
             bg={searching ? TX.ink : TX.surface} color={searching ? '#fff' : TX.ink} border={searching ? TX.ink : TX.line}/>
           <IconBtn icon="history" onClick={() => setHistoryOpen(true)}/>
         </>
       }/>
+
+      {/* In-chat model switcher (BYOK only) */}
+      <StrideChatModelBar/>
 
       {/* Search bar */}
       {searching && (
@@ -1600,6 +1864,29 @@ function ChatScreen({ go, persona }) {
       {sheetSession && window.Sheet && (
         <window.Sheet title={sheetSession.title} onClose={() => setSheetSession(null)}>
           <window.SessionDetail session={sheetSession} go={go} persona={persona} onClose={() => setSheetSession(null)}/>
+        </window.Sheet>
+      )}
+
+      {/* "What the coach changed" — used to be the only thing the corner button
+          did; it lives here now that the corner opens the coach itself. */}
+      {changesOpen && window.Sheet && (
+        <window.Sheet title={window.t('What {name} changed', { name: persona.name })} onClose={() => setChangesOpen(false)}>
+          <AILogBody
+            entries={window.STRIDE_AI_LOG || []}
+            scopes={['today', 'week', 'block']}
+            scopeLabel="your full plan"
+            trainer={persona.name}
+            onOpenEntry={(e) => {
+              const session = window.strideFindSession && window.strideFindSession(e.sessionId);
+              if (session) { setChangeSession(session); return; }
+              if (e.blockId != null) { window.__strideOpenBlockId = e.blockId; setChangesOpen(false); go('block-detail'); }
+            }}/>
+        </window.Sheet>
+      )}
+
+      {changeSession && window.Sheet && (
+        <window.Sheet title={changeSession.title} onClose={() => setChangeSession(null)}>
+          <SessionDetail session={changeSession} go={go} persona={persona} onClose={() => setChangeSession(null)}/>
         </window.Sheet>
       )}
 

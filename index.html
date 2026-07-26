@@ -31,6 +31,9 @@
     @keyframes bob { 0%,100% { transform: translateY(0); opacity: .4; } 50% { transform: translateY(-3px); opacity: 1; } }
     @keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
     @keyframes facePop { 0% { transform: scale(.9); } 60% { transform: scale(1.04); } 100% { transform: scale(1); } }
+    /* Plan week/month pager: incoming page slides in from the swipe side */
+    @keyframes stridePageNext { from { transform: translateX(36px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes stridePagePrev { from { transform: translateX(-36px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
     ::-webkit-scrollbar { width: 0; height: 0; }
 
     /* Login gate (shown before the prototype boots) */
@@ -78,7 +81,9 @@
     if (strideIsCapacitor || /[?&]native=1/.test(location.search)) {
       window.STRIDE_NATIVE = true;
     }
-    if (strideIsCapacitor) {
+    // ?api=live points a browser session at the production API (same as the
+    // device) — for testing real data without running the Laravel app locally.
+    if (strideIsCapacitor || /[?&]api=live/.test(location.search)) {
       window.STRIDE_API_BASE = 'https://dashboard.cecko.dev/api/stride';
     }
   </script>

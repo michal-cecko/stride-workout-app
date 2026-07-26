@@ -1292,7 +1292,8 @@ function ExerciseSheet({ ex, onClose, isFav, isHidden, onToggleFav, onToggleHide
   const savePr = () => {
     if (!ex.id) return;
     setSaving(true);
-    window.__strideSavePr({ exercise_id: ex.id, label: ex.name, metric_type: metricType, metrics: draft, achieved_on: draftDate || null, form_quality: draftForm })
+    // Store the canonical English name — PR labels feed the coach and plan matching.
+    window.__strideSavePr({ exercise_id: ex.id, label: ex.nameEn || ex.name, metric_type: metricType, metrics: draft, achieved_on: draftDate || null, form_quality: draftForm })
       .then(() => { setPrs(myPrs()); setLogging(false); setDraft({}); setDraftForm(null); setSaving(false); })
       .catch(() => setSaving(false));
   };

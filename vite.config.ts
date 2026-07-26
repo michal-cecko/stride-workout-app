@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 // design-editor-only file and is intentionally excluded.
 const PROTO_FILES = [
   'ios-frame', 'android-frame', 'data', 'data-live', 'i18n-sk', 'i18n', 'ui',
-  'screens-main', 'screens-spots', 'screens-meta', 'screens-train', 'screens-onboarding', 'app',
+  'screens-main', 'screens-spots', 'screens-meta', 'screens-train', 'screens-onboarding', 'screens-ai', 'screens-workouts', 'app',
 ]
 
 const PROTO_DIR = fileURLToPath(new URL('./public/proto', import.meta.url))

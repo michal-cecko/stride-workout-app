@@ -10,6 +10,21 @@ const RECENT_ICON_TINT = {
   heart:    { bg: '#16A34A18', fg: '#16A34A' },  // cardio/run — green
 };
 
+// Done-card copy by how much of the session was actually logged. Finishing two
+// of seventeen sets is still worth acknowledging — it just isn't "crushed it".
+const DONE_HEADLINE = {
+  full: (name) => `CRUSHED IT, ${name}.`,
+  most: (name) => `SOLID WORK, ${name}.`,
+  half: (name) => `HALF A SESSION, ${name}.`,
+  short: (name) => `YOU SHOWED UP, ${name}.`,
+};
+const DONE_BLURB = {
+  full: "Today's training is in the books — every set logged. Rest up and recover, or stack on a bonus session if you've still got it in you.",
+  most: 'Most of the work is done and it counts. Whatever you cut, the coach will factor in next time.',
+  half: 'You cut it short and that is fine — half a session beats none. Log how it felt so the plan adapts.',
+  short: 'Short one today. Showing up on a bad day is still training; the coach will pick it up from here.',
+};
+
 // ────────────────────────────────────────────────────────────────────
 // HOME / TODAY
 // ────────────────────────────────────────────────────────────────────
@@ -42,7 +57,27 @@ function HomeScreen({ go, persona }) {
     try { return localStorage.getItem('stride_today_done') === todayISO; } catch (e) { return false; }
   })();
   const doneToday = (w && w.status === 'done') || doneFlag;
+  // How much of it actually got done — a session finished early must not be
+  // congratulated as if every set had been logged.
+  const done = window.strideCompletion(w, (() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('stride_last_log') || 'null');
+      return saved && w && saved.sessionId === w.id ? saved.log : null;
+    } catch (e) { return null; }
+  })());
   const startAnotherSession = () => go('generate');
+  // Session left running (quit mid-workout): offer Resume + an explicit end,
+  // instead of a "Start" that reads like the logged work is gone.
+  const inProgress = !doneToday && window.strideIsInProgress(w);
+  const progress = window.strideProgressStats(w, window.strideActiveProgress(w && w.id));
+  const [endOpen, setEndOpen] = React.useState(false);
+  const endSession = () => {
+    setEndOpen(false);
+    window.strideClearProgress();
+    try { localStorage.setItem('stride_today_done', todayISO); } catch (e) {}
+    Promise.resolve(w && w.id != null && window.__strideCompleteSession ? window.__strideCompleteSession(w.id, {}) : null)
+      .then(() => { if (window.__strideRerender) window.__strideRerender(); });
+  };
   const commitEnergy = (k) => {
     setEnergy(k);
     try { localStorage.setItem(checkInKey, String(k)); } catch (e) {}
@@ -73,7 +108,7 @@ function HomeScreen({ go, persona }) {
           <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 28, letterSpacing: -1, color: TT.ink, marginTop: 2 }}>Hi, {u.name}.</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <AILogButton scopes={['today']} scopeLabel="today's training" persona={persona}/>
+          <AILogButton scopes={['today']} scopeLabel="today's training" persona={persona} go={go}/>
         </div>
       </div>
 
@@ -101,13 +136,15 @@ function HomeScreen({ go, persona }) {
                 <div style={{ width: 30, height: 30, borderRadius: 15, background: TT.volt, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                   <StrideIcon name="check" size={18} color={TT.ink} strokeWidth={3}/>
                 </div>
-                <span style={{ fontFamily: 'Inter', fontSize: 12, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', color: TT.volt }}>All done today</span>
+                <span style={{ fontFamily: 'Inter', fontSize: 12, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', color: TT.volt }}>
+                  {done.planned ? window.t('{done} of {total} sets', { done: done.done, total: done.planned }) : window.t('All done today')}
+                </span>
               </div>
               <h2 style={{ margin: '0 0 8px', fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 34, lineHeight: 0.98, letterSpacing: -1.4, color: '#fff' }}>
-                CRUSHED IT, {u.name.toUpperCase()}.
+                {DONE_HEADLINE[done.tier](u.name.toUpperCase())}
               </h2>
               <p style={{ margin: 0, fontFamily: 'Inter', fontSize: 13.5, lineHeight: 1.5, color: '#bbb' }}>
-                Today's training is in the books — every set logged. Rest up and recover, or stack on a bonus session if you've still got it in you.
+                {DONE_BLURB[done.tier]}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18 }}>
                 <StrideButton variant="volt" size="md" icon="plus" block onClick={startAnotherSession}>Add another session</StrideButton>
@@ -133,9 +170,9 @@ function HomeScreen({ go, persona }) {
                   </p>
                 );
               })()}
-              <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-                <StrideButton variant="volt" size="md" iconRight="arrowRight" onClick={() => go('plan')} style={{ flex: 1 }}>View plan</StrideButton>
-                <StrideButton variant="ghost" size="md" icon="sparkles" onClick={() => go('generate')} style={{ flex: 'none', color: '#fff', borderColor: '#ffffff33' }}>Add a session</StrideButton>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18 }}>
+                <StrideButton variant="volt" size="md" iconRight="arrowRight" onClick={() => go('plan')} block>View plan</StrideButton>
+                <StrideButton variant="ghost" size="md" icon="sparkles" onClick={() => go('generate')} block style={{ color: '#fff', borderColor: '#ffffff33' }}>Add a session</StrideButton>
               </div>
             </div>
           </Card>
@@ -174,9 +211,31 @@ function HomeScreen({ go, persona }) {
               <Stat label="Exercises" value={w.exercises.length}/>
               <Stat label="Duration" value={`${w.durationMin}m`} muted/>
             </div>
+            {/* Left mid-session? Pick up where you stopped instead of starting over. */}
+            {inProgress && (
+              <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'Inter', fontSize: 12, fontWeight: 700, color: TT.volt }}>
+                <span style={{ width: 7, height: 7, borderRadius: 7, background: TT.volt }}/>
+                {progress.done > 0
+                  ? window.t('In progress · {done} of {total} sets done', { done: progress.done, total: progress.total })
+                  : window.t('In progress')}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }} onClick={(e) => e.stopPropagation()}>
-              <StrideButton variant="volt" size="md" iconRight="arrowRight" onClick={() => { window.STRIDE_ACTIVE_WORKOUT = null; go('active-config'); }} style={{ flex: 1 }}>Start</StrideButton>
-              <IconBtn icon="edit" onClick={() => setSessionSheet('edit')} bg="#ffffff14" color="#fff" border="#ffffff22"/>
+              {inProgress ? (
+                <>
+                  <StrideButton variant="volt" size="md" iconRight="arrowRight" onClick={() => {
+                    window.STRIDE_ACTIVE_WORKOUT = null;
+                    if (window.__strideSetAutoRest) window.__strideSetAutoRest(window.strideResumeAuto());
+                    go('active');
+                  }} style={{ flex: 1 }}>Resume</StrideButton>
+                  <IconBtn icon="check" onClick={() => setEndOpen(true)} bg="#ffffff14" color="#fff" border="#ffffff22"/>
+                </>
+              ) : (
+                <>
+                  <StrideButton variant="volt" size="md" iconRight="arrowRight" onClick={() => { window.STRIDE_ACTIVE_WORKOUT = null; go('active-config'); }} style={{ flex: 1 }}>Start</StrideButton>
+                  <IconBtn icon="edit" onClick={() => setSessionSheet('edit')} bg="#ffffff14" color="#fff" border="#ffffff22"/>
+                </>
+              )}
             </div>
           </div>
         </Card>
@@ -258,6 +317,23 @@ function HomeScreen({ go, persona }) {
       {/* Daily check-in slide-over */}
       {checkInOpen && (
         <CheckInOverlay level={energy} note={energyNote} onSet={commitEnergy} onSetNote={commitEnergyNote} onClose={() => setCheckInOpen(false)} go={go}/>
+      )}
+
+      {/* End a session you walked away from — logged sets are already saved. */}
+      {endOpen && (
+        <Sheet title={window.t('End this session?')} onClose={() => setEndOpen(false)}>
+          <div style={{ padding: '4px 0 8px' }}>
+            <div style={{ fontFamily: 'Inter', fontSize: 13.5, lineHeight: 1.55, color: TT.ink2, marginBottom: 16 }}>
+              {progress.done > 0
+                ? window.t('{done} of {total} sets are logged and stay logged. The session is marked done — the rest of the sets are simply not counted.', { done: progress.done, total: progress.total })
+                : window.t('Nothing has been logged yet. The session is marked done with no sets counted.')}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <StrideButton variant="ghost" style={{ flex: 1 }} onClick={() => setEndOpen(false)}>Keep going</StrideButton>
+              <StrideButton variant="primary" icon="check" style={{ flex: 1.3 }} onClick={endSession}>End session</StrideButton>
+            </div>
+          </div>
+        </Sheet>
       )}
 
       {/* Today's session — detail / editor sheet */}
@@ -481,8 +557,18 @@ function QuickTile({ icon, label, sub, onClick, bgColor, inkColor }) {
 // ────────────────────────────────────────────────────────────────────
 const AI_SCOPE_GROUPS = { today: "Today's session", week: 'This week', block: 'This block' };
 
-function AILogButton({ scopes, scopeLabel, persona, dark = false }) {
-  const [open, setOpen] = React.useState(false);
+// Find the plan session a coach change touched (week view first, then blocks).
+function strideFindSession(id) {
+  if (id == null) return null;
+  return [(window.STRIDE_WEEK_PLAN || [])]
+    .concat((window.STRIDE_BLOCKS || []).map((b) => b.sessions || []))
+    .flat()
+    .find((x) => x.id === id) || null;
+}
+
+function AILogButton({ scopes, scopeLabel, persona, go, dark = false }) {
+  const [open, setOpen] = React.useState(false);          // the "what changed" sheet
+  const [openSession, setOpenSession] = React.useState(null);
   const entries = (window.STRIDE_AI_LOG || []).filter((e) => scopes.includes(e.scope));
   const trainer = (persona && persona.name) || 'Coach';
   // Badge = UNREAD changes: opening the log marks everything seen (persisted),
@@ -492,20 +578,26 @@ function AILogButton({ scopes, scopeLabel, persona, dark = false }) {
     try { return parseInt(localStorage.getItem(seenKey) || '0', 10) || 0; } catch (e) { return 0; }
   });
   const unread = Math.max(0, entries.length - seen);
-  const openLog = () => {
-    setOpen(true);
+  const markSeen = () => {
     setSeen(entries.length);
     try { localStorage.setItem(seenKey, String(entries.length)); } catch (e) {}
   };
+  // Tap = talk to the coach (the AI tab's old job); long-press / the badge still
+  // gets you to the change log, which is also linked from the chat header.
+  const openCoach = () => { markSeen(); if (go) go('chat'); };
   return (
     <>
-      <button onClick={openLog} aria-label="Coach activity log" style={{
+      <button
+        onClick={openCoach}
+        onContextMenu={(e) => { e.preventDefault(); markSeen(); setOpen(true); }}
+        aria-label={window.t('Coach')}
+        style={{
         position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         width: 40, height: 40, borderRadius: 12, cursor: 'pointer',
         background: dark ? '#ffffff14' : TT.surface,
         border: `1px solid ${dark ? '#ffffff22' : TT.line}`,
       }}>
-        <StrideIcon name="sparkles" size={19} color={dark ? '#fff' : TT.ink}/>
+        <StrideIcon name="chat" size={19} color={dark ? '#fff' : TT.ink}/>
         {unread > 0 && (
           <span style={{
             position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, padding: '0 4px',
@@ -517,14 +609,28 @@ function AILogButton({ scopes, scopeLabel, persona, dark = false }) {
       </button>
       {open && (
         <Sheet title="Coach activity" onClose={() => setOpen(false)}>
-          <AILogBody entries={entries} scopes={scopes} scopeLabel={scopeLabel} trainer={trainer}/>
+          <AILogBody entries={entries} scopes={scopes} scopeLabel={scopeLabel} trainer={trainer}
+            onOpenEntry={(e) => {
+              const session = strideFindSession(e.sessionId);
+              if (session) { setOpenSession(session); return; }
+              if (e.blockId != null && go) {
+                window.__strideOpenBlockId = e.blockId;
+                setOpen(false);
+                go('block-detail');
+              }
+            }}/>
+        </Sheet>
+      )}
+      {openSession && (
+        <Sheet title={openSession.title} onClose={() => setOpenSession(null)}>
+          <SessionDetail session={openSession} go={go} persona={persona} onClose={() => setOpenSession(null)}/>
         </Sheet>
       )}
     </>
   );
 }
 
-function AILogBody({ entries, scopes, scopeLabel, trainer }) {
+function AILogBody({ entries, scopes, scopeLabel, trainer, onOpenEntry }) {
   return (
     <div style={{ padding: '4px 0 8px' }}>
       {/* Scope banner */}
@@ -548,19 +654,28 @@ function AILogBody({ entries, scopes, scopeLabel, trainer }) {
         <div key={sc} style={{ marginBottom: 18 }}>
           <SectionHeader title={AI_SCOPE_GROUPS[sc] || sc}/>
           <div style={{ marginTop: 10, background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 14, overflow: 'hidden' }}>
-            {entries.filter((e) => e.scope === sc).map((e, i) => (
-              <div key={i} style={{ display: 'flex', gap: 12, padding: '13px 14px', borderTop: i ? `1px solid ${TT.lineSoft}` : 'none' }}>
-                <div style={{ width: 30, height: 30, borderRadius: 10, background: TT.lineSoft, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                  <StrideIcon name={e.icon} size={15} color={TT.ink2}/>
+            {entries.filter((e) => e.scope === sc).map((e, i) => {
+              // A change that points at a session/block opens it; the rest stay static.
+              const linked = !!onOpenEntry && (e.sessionId != null || e.blockId != null);
+              return (
+                <div key={i} role={linked ? 'button' : undefined} onClick={linked ? () => onOpenEntry(e) : undefined}
+                  style={{
+                    display: 'flex', gap: 12, padding: '13px 14px', borderTop: i ? `1px solid ${TT.lineSoft}` : 'none',
+                    cursor: linked ? 'pointer' : 'default',
+                  }}>
+                  <div style={{ width: 30, height: 30, borderRadius: 10, background: TT.lineSoft, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                    <StrideIcon name={e.icon} size={15} color={TT.ink2}/>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13.5, color: TT.ink, lineHeight: 1.25 }}>{e.text}</div>
+                    <div style={{ fontFamily: 'Inter', fontSize: 10.5, color: TT.ink3, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, marginTop: 5 }}>{e.kind} · {e.target}</div>
+                    <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink2, lineHeight: 1.45, marginTop: 5 }}>{e.why}</div>
+                    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10.5, color: TT.ink3, marginTop: 6 }}>{e.when}</div>
+                  </div>
+                  {linked && <div style={{ alignSelf: 'center' }}><StrideIcon name="chevR" size={16} color={TT.ink3}/></div>}
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13.5, color: TT.ink, lineHeight: 1.25 }}>{e.text}</div>
-                  <div style={{ fontFamily: 'Inter', fontSize: 10.5, color: TT.ink3, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, marginTop: 5 }}>{e.kind} · {e.target}</div>
-                  <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink2, lineHeight: 1.45, marginTop: 5 }}>{e.why}</div>
-                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10.5, color: TT.ink3, marginTop: 6 }}>{e.when}</div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ))}
@@ -596,7 +711,7 @@ function PlanScreen({ go, persona }) {
   return (
     <Screen>
       <StrideHeader title="Training Plan" kicker={planKicker} right={
-        <AILogButton scopes={['today', 'week', 'block']} scopeLabel="your full plan" persona={persona}/>
+        <AILogButton scopes={['today', 'week', 'block']} scopeLabel="your full plan" persona={persona} go={go}/>
       }/>
       <div style={{ padding: '0 20px 16px', display: 'flex', gap: 8 }}>
         <ToggleSeg value={view} onChange={setView} options={[
@@ -650,6 +765,30 @@ function PlanWeekView({ week, go, persona }) {
   };
   const rows = (week || []).filter(inWindow).slice()
     .sort((a, b) => String(a.scheduledDate || '').localeCompare(String(b.scheduledDate || '')));
+  // Fill the no-training days so the week reads as a full Mon–Sun grid, not just the
+  // days that have sessions — a gap day shows a muted "Rest day" row. Only when the
+  // week has real dated sessions (live data); an empty week keeps its empty state,
+  // and undated mock rows render as-is.
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const isoOf = (dt) => `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+  const todayIso = isoOf(new Date());
+  const displayRows = (!rows.length || !rows.some((r) => r.scheduledDate)) ? rows : (() => {
+    const byDate = {};
+    rows.forEach((r) => { if (r.scheduledDate) (byDate[r.scheduledDate] = byDate[r.scheduledDate] || []).push(r); });
+    const out = [];
+    for (let i = 0; i < 7; i++) {
+      const dt = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+      const iso = isoOf(dt);
+      if (byDate[iso]) { byDate[iso].forEach((r) => out.push(r)); continue; } // keep all sessions that day
+      out.push({
+        __rest: true, scheduledDate: iso, kind: 'Rest',
+        day: dt.toLocaleDateString('en-US', { weekday: 'short' }), // EN abbrev → SK dict maps it
+        date: dt.getDate(), isToday: iso === todayIso,
+      });
+    }
+    rows.forEach((r) => { if (!r.scheduledDate) out.push(r); }); // defensive: keep any undated rows
+    return out;
+  })();
   const swipe = useSwipeNav(() => page(-1), () => page(1));
   const fmtD = (d) => d.toLocaleDateString(window.strideLocale(), { day: 'numeric', month: 'short' });
   const label = offset === 0 ? window.t('This week') : `${fmtD(monday)} – ${fmtD(sunday)}`;
@@ -669,9 +808,10 @@ function PlanWeekView({ week, go, persona }) {
             <div style={{ fontFamily: 'Inter', fontSize: 13, color: TT.ink3 }}>Nothing planned this week yet.</div>
           </Card>
         )}
-        {rows.map((d, i) => {
+        {displayRows.map((d, i) => {
+          if (d.__rest) return <RestRow key={i} d={d} last={i === displayRows.length - 1}/>;
           if (d.status === 'today') return <TodayRow key={i} d={d} go={go} onOpen={() => setOpenSession(d)}/>;
-          return <WeekRow key={i} d={d} last={i === rows.length - 1} onOpen={() => setOpenSession(d)}/>;
+          return <WeekRow key={i} d={d} last={i === displayRows.length - 1} onOpen={() => setOpenSession(d)}/>;
         })}
       </div>
       <div style={{ paddingTop: 18 }}>
@@ -804,6 +944,28 @@ function TodayRow({ d, go, onOpen }) {
   );
 }
 
+// A no-training day in the week grid — muted, non-interactive (no session to open).
+function RestRow({ d, last }) {
+  return (
+    <div style={{
+      display: 'flex', gap: 14, padding: '14px 0', alignItems: 'center',
+      borderBottom: last ? 'none' : `1px solid ${TT.lineSoft}`,
+      opacity: 0.7,
+    }}>
+      <DayPill d={d}/>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 17, lineHeight: 1.15, color: TT.ink3, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {window.t('Rest day')}
+          {d.isToday && (
+            <span style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: 800, color: TT.ink, background: TT.volt, borderRadius: 6, padding: '2px 6px', letterSpacing: 0.6, textTransform: 'uppercase' }}>{window.t('Today')}</span>
+          )}
+        </div>
+        <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, marginTop: 4 }}>{window.t('Recovery')}</div>
+      </div>
+    </div>
+  );
+}
+
 function WeekRow({ d, last, onOpen }) {
   const rest = d.kind === 'Rest';
   const done = d.status === 'done';
@@ -863,6 +1025,9 @@ function aiSessionNote(personaKey, s) {
   const v = {
     kind: s.kind, day: strideDayPhrase(s), duration: s.duration,
     vol: (s.volume / 1000).toFixed(1),
+    done: s.completion ? s.completion.done : 0,
+    total: s.completion ? s.completion.planned : 0,
+    pct: s.completion ? Math.round(s.completion.ratio * 100) : 0,
     volKg: (s.volume || 0).toLocaleString(window.strideLocale()),
     reason: (s.skipReason || '').toLowerCase(),
   };
@@ -873,13 +1038,21 @@ function aiSessionNote(personaKey, s) {
   else if (s.status === 'today') bucket = 'today';
   else if (s.status === 'planned') bucket = 'planned';
   else if (rest) bucket = 'recovery';
-  else bucket = s.result === 'bad' ? 'bad' : 'good';
+  // `s.result` was never set by anything — the "bad" copy could never appear.
+  // Judge the session by how much of it was actually logged instead.
+  else bucket = (s.completion && s.completion.tier === 'full') || !s.completion ? 'good'
+    : s.completion.tier === 'most' ? 'good' : 'partial';
 
   const lines = {
     good: {
       coach: window.t(`{vol} tonnes moved and bar speed held to the last rep. That's the standard now — match it next {kind}.`, v),
       calm: window.t(`Really clean work. Volume and effort landed right where we planned, and your top sets looked controlled. Recover well and we'll build from here.`, v),
       nerd: window.t(`{volKg} kg tonnage @ RPE 7.4 — within 3% of target. Velocity steady across working sets, so you're cleared for +2.5 kg next cycle.`, v),
+    },
+    partial: {
+      coach: window.t(`You got {done} of {total} sets in before calling it. That's still work in the bank — we pick the rest up next {kind}.`, v),
+      calm: window.t(`{done} of {total} sets logged. Stopping early isn't failing — the session still counted, and I'll carry what you missed into the next one.`, v),
+      nerd: window.t(`{done}/{total} working sets logged ({pct}% of planned volume). Enough to maintain stimulus; I'll rebalance the next {kind} accordingly.`, v),
     },
     bad: {
       coach: window.t(`Rough one — but you showed up and logged it, and that counts. We trim 5% off {kind} next time and rebuild bar speed. No quitting.`, v),
@@ -990,7 +1163,17 @@ function liveExToDisplay(ex) {
     sets: work.length || sets.length || (typeof ex.sets === 'number' ? ex.sets : 0),
     reps: rep.reps != null ? rep.reps : (ex.reps != null ? ex.reps : ''),
     load: rep.kg ? `${rep.kg} kg` : (ex.load || '—'),
+    raw: ex, // full exercise (sets, note, catalog id) for the detail slideover
   };
+}
+
+// The object the exercise slideover renders. Real sessions pass their exercise
+// straight through; the per-kind sample fallback has only a summary line, so
+// hand that over instead of an empty sheet.
+function exerciseDetailShape(row) {
+  if (row.raw) return row.raw;
+  const summary = `${row.sets} × ${row.reps}${row.load && row.load !== '—' ? ` · ${row.load}` : ''}`;
+  return { name: row.name, tag: '', note: '', sets: [], plannedSummary: summary };
 }
 
 function SessionDetail({ session: s, go, persona, onClose, startEditing = false }) {
@@ -1008,11 +1191,13 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
       .then(() => go('active-config')).catch(() => go('active-config'));
   };
 
-  // "I'll do it tomorrow": push this session a day out (also revives a skipped
-  // one). The bridge refreshes the globals; closing re-renders onto fresh data.
-  const postponeSession = () => {
-    if (!s.id || !window.__strideSessionAction) { onClose(); return; }
-    window.__strideSessionAction(s.id, 'postpone').then(onClose).catch(onClose);
+  // Moving a session: the athlete picks the day (the old action silently shoved
+  // it to "tomorrow" with nothing on screen saying where it landed). The bridge
+  // refreshes the globals; closing re-renders onto fresh data.
+  const moveSession = (isoDate) => {
+    if (!s.id || !window.__strideSessionAction) { onClose(); return Promise.resolve(); }
+    return window.__strideSessionAction(s.id, 'postpone', isoDate ? { date: isoDate } : {})
+      .then(onClose).catch(onClose);
   };
 
   // "Do it again" vs "Do it now": has this exact training (same title) ever
@@ -1031,14 +1216,22 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
   const [liveEx, setLiveEx] = React.useState(() =>
     (s.exercises && s.exercises.length) ? s.exercises.filter(e => e.section !== 'warmup').map(liveExToDisplay) : null
   );
+  // Exercise slideover stacked on top of this sheet (tap a row in the list below).
+  const [openEx, setOpenEx] = React.useState(null);
+  const [movingOpen, setMovingOpen] = React.useState(false);
   React.useEffect(() => {
     if ((!s.exercises || !s.exercises.length) && s.id && window.__strideLoadSession) {
+      // __strideLoadSession parks the session on STRIDE_ACTIVE_WORKOUT (that's what
+      // the player runs) — browsing a session in Plan must NOT hijack a workout that
+      // is in progress, so put the previous one back.
+      const previous = window.STRIDE_ACTIVE_WORKOUT;
       window.__strideLoadSession(s.id)
         .then(() => {
           const w = window.STRIDE_ACTIVE_WORKOUT;
           if (w && w.exercises && w.exercises.length) setLiveEx(w.exercises.filter(e => e.section !== 'warmup').map(liveExToDisplay));
+          window.STRIDE_ACTIVE_WORKOUT = previous;
         })
-        .catch(() => {});
+        .catch(() => { window.STRIDE_ACTIVE_WORKOUT = previous; });
     }
   }, [s.id]);
 
@@ -1050,6 +1243,27 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
   }
 
   const exercises = liveEx || SESSION_SAMPLES[s.kind] || [];
+
+  // How much of this session was actually logged (sets carry `done` from the API).
+  const completion = window.strideCompletion(
+    (liveEx && liveEx.length) ? { exercises: liveEx.map((r) => r.raw).filter(Boolean) } : (s.exercises ? s : null),
+    null,
+  );
+
+  // Coach changes for THIS session: the live activity log (scoped by session id),
+  // falling back to whatever the session object carries.
+  const logged = (window.STRIDE_AI_LOG || []).filter((e) => s.id != null && e.sessionId === s.id);
+  const changes = logged.length ? logged : (s.adjustments || []);
+  // Which exercise a change is about — the coach names it in `target`/`text`,
+  // sometimes shorter than the catalog name ("Bench press" → "Barbell Bench Press").
+  const changedExercise = (a) => {
+    const hay = `${a.target || ''} ${a.text || ''}`.toLowerCase();
+    const target = String(a.target || '').toLowerCase().trim();
+    return exercises.find((x) => {
+      const name = String(x.name || '').toLowerCase();
+      return name && (hay.includes(name) || (target.length > 4 && name.includes(target)));
+    }) || null;
+  };
 
   return (
     <div style={{ padding: '4px 0 0' }}>
@@ -1138,24 +1352,34 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
       )}
 
       {/* AI Trainer response — varies by outcome */}
-      <AITrainerNote persona={persona} s={s}/>
+      <AITrainerNote persona={persona} s={{ ...s, completion }}/>
 
-      {/* What the trainer changed for this session */}
-      {s.adjustments && s.adjustments.length > 0 && (
+      {/* What the trainer changed for this session — tap a change to open the
+          exercise it touched, so "swapped dips for push-ups" is one tap from the
+          push-up detail instead of a hunt through the list. */}
+      {changes.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <SectionHeader title="What I changed"/>
           <div style={{ marginTop: 10, background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 14, overflow: 'hidden' }}>
-            {s.adjustments.map((a, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderTop: i ? `1px solid ${TT.lineSoft}` : 'none' }}>
-                <div style={{ width: 28, height: 28, borderRadius: 9, background: TT.lineSoft, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                  <StrideIcon name="sliders" size={14} color={TT.ink2}/>
+            {changes.map((a, i) => {
+              const hit = changedExercise(a);
+              return (
+                <div key={i} role={hit ? 'button' : undefined} onClick={hit ? () => setOpenEx(exerciseDetailShape(hit)) : undefined}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+                    borderTop: i ? `1px solid ${TT.lineSoft}` : 'none', cursor: hit ? 'pointer' : 'default',
+                  }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 9, background: TT.lineSoft, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                    <StrideIcon name={a.icon || 'sliders'} size={14} color={TT.ink2}/>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13.5, color: TT.ink }}>{a.text}</div>
+                    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11.5, color: TT.ink3, marginTop: 3 }}>{a.note || a.why || a.when || ''}</div>
+                  </div>
+                  {hit && <StrideIcon name="chevR" size={16} color={TT.ink3}/>}
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13.5, color: TT.ink }}>{a.text}</div>
-                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11.5, color: TT.ink3, marginTop: 3 }}>{a.note}</div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -1166,13 +1390,14 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
           <SectionHeader title={isRest ? 'Recovery flow' : (skipped ? 'What you missed' : (done ? 'What you did' : "What's planned"))}/>
           <div style={{ marginTop: 10, background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 14, overflow: 'hidden' }}>
             {exercises.map((ex, i) => (
-              <div key={i} style={{
+              <button key={i} onClick={() => setOpenEx(exerciseDetailShape(ex))} style={{
+                width: '100%', textAlign: 'left', cursor: 'pointer', background: 'none', border: 'none',
                 display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
                 borderTop: i ? `1px solid ${TT.lineSoft}` : 'none',
               }}>
                 <div style={{
                   width: 28, height: 28, borderRadius: 9, background: TT.lineSoft,
-                  display: 'grid', placeItems: 'center',
+                  display: 'grid', placeItems: 'center', flexShrink: 0,
                   fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 12, color: TT.ink2,
                 }}>{i + 1}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1182,7 +1407,8 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
                   </div>
                 </div>
                 {done && <StrideIcon name="check" size={14} color={TT.green} strokeWidth={3}/>}
-              </div>
+                <StrideIcon name="chevR" size={16} color={TT.ink3}/>
+              </button>
             ))}
           </div>
         </div>
@@ -1194,7 +1420,7 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
           <>
             <div style={{ display: 'flex', gap: 8 }}>
               <StrideButton variant="ghost" icon="edit" style={{ flex: 1, minWidth: 0 }} onClick={() => setMode('edit')}>Edit</StrideButton>
-              <StrideButton variant="ghost" icon="cal" style={{ flex: 1, minWidth: 0 }} onClick={postponeSession}>Tomorrow</StrideButton>
+              <StrideButton variant="ghost" icon="cal" style={{ flex: 1, minWidth: 0 }} onClick={() => setMovingOpen(true)}>Move</StrideButton>
             </div>
             <StrideButton variant="volt" icon="play" block onClick={startSession}>Start</StrideButton>
           </>
@@ -1203,7 +1429,7 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
           <>
             <div style={{ display: 'flex', gap: 8 }}>
               <StrideButton variant="ghost" icon="edit" style={{ flex: 1, minWidth: 0 }} onClick={() => setMode('edit')}>Edit</StrideButton>
-              <StrideButton variant="ghost" icon="cal" style={{ flex: 1, minWidth: 0 }} onClick={postponeSession}>Move</StrideButton>
+              <StrideButton variant="ghost" icon="cal" style={{ flex: 1, minWidth: 0 }} onClick={() => setMovingOpen(true)}>Move</StrideButton>
             </div>
             <StrideButton variant="primary" icon="play" block onClick={startSession}>Start early</StrideButton>
           </>
@@ -1216,12 +1442,106 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
         )}
         {skipped && (
           <div style={{ display: 'flex', gap: 8 }}>
-            <StrideButton variant="ghost" icon="cal" style={{ flex: 1, minWidth: 0 }} onClick={postponeSession}>Reschedule</StrideButton>
+            <StrideButton variant="ghost" icon="cal" style={{ flex: 1, minWidth: 0 }} onClick={() => setMovingOpen(true)}>Reschedule</StrideButton>
             <StrideButton variant="primary" icon="play" style={{ flex: 1, minWidth: 0 }} onClick={startSession}>
               {doneBefore ? 'Do it again' : 'Do it now'}
             </StrideButton>
           </div>
         )}
+      </div>
+
+      {/* Exercise detail — a second sheet stacked over this one */}
+      {openEx && (
+        <Sheet title={openEx.name} onClose={() => setOpenEx(null)}>
+          <ActiveExerciseDetail ex={openEx} setsLabel={done ? window.t('What you did') : (today ? window.t("Today's sets") : window.t('Planned sets'))}/>
+        </Sheet>
+      )}
+
+      {/* Move to another day — pick the date instead of a silent "+1 day" */}
+      {movingOpen && (
+        <Sheet title={window.t('Move session')} onClose={() => setMovingOpen(false)}>
+          <MoveSessionPicker
+            currentDate={s.scheduledDate || null}
+            onPick={(iso) => { setMovingOpen(false); moveSession(iso); }}
+          />
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+// Pick the day a session moves to. Shows the next ten days with what's already
+// scheduled on each day (so you don't stack two trainings by accident), plus a
+// date field for anything further out.
+function MoveSessionPicker({ currentDate, onPick }) {
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const isoOf = (dt) => `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+  const today = new Date();
+  const todayIso = isoOf(today);
+  const [custom, setCustom] = React.useState('');
+
+  // Everything already on the calendar, so each day can say what's there.
+  const scheduled = {};
+  [(window.STRIDE_WEEK_PLAN || [])]
+    .concat((window.STRIDE_BLOCKS || []).map((b) => b.sessions || []))
+    .flat()
+    .forEach((x) => {
+      if (!x.scheduledDate || x.status === 'done' || x.status === 'skipped') return;
+      if (!scheduled[x.scheduledDate]) scheduled[x.scheduledDate] = x;
+    });
+
+  const days = Array.from({ length: 10 }, (_, i) => {
+    const dt = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
+    const iso = isoOf(dt);
+    const taken = scheduled[iso];
+    return {
+      iso, dt,
+      label: i === 0 ? window.t('Today') : (i === 1 ? window.t('Tomorrow') : dt.toLocaleDateString(window.strideLocale(), { weekday: 'long' })),
+      sub: dt.toLocaleDateString(window.strideLocale(), { day: 'numeric', month: 'long' }),
+      busy: taken && taken.scheduledDate !== currentDate ? taken.title : null,
+      isCurrent: iso === currentDate,
+    };
+  });
+
+  return (
+    <div style={{ padding: '4px 0 0' }}>
+      <div style={{ background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 14, overflow: 'hidden' }}>
+        {days.map((d, i) => (
+          <button key={d.iso} disabled={d.isCurrent} onClick={() => onPick(d.iso)} style={{
+            width: '100%', textAlign: 'left', border: 'none', background: 'none',
+            cursor: d.isCurrent ? 'default' : 'pointer', opacity: d.isCurrent ? 0.5 : 1,
+            display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+            borderTop: i ? `1px solid ${TT.lineSoft}` : 'none',
+          }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: 12, background: TT.lineSoft, flexShrink: 0,
+              display: 'grid', placeItems: 'center', alignContent: 'center',
+            }}>
+              <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 15, color: TT.ink, lineHeight: 1 }}>{d.dt.getDate()}</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 14, color: TT.ink }}>
+                {d.label}{d.isCurrent ? ` · ${window.t('scheduled now')}` : ''}
+              </div>
+              <div style={{ fontFamily: 'Inter', fontSize: 11.5, color: d.busy ? TT.amber : TT.ink3, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {d.busy ? `${d.sub} · ${d.busy}` : d.sub}
+              </div>
+            </div>
+            {!d.isCurrent && <StrideIcon name="chevR" size={16} color={TT.ink3}/>}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <SectionHeader title="Another date"/>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <input type="date" value={custom} min={todayIso} onChange={(e) => setCustom(e.target.value)} style={{
+            flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '11px 12px', borderRadius: 12,
+            border: `1px solid ${TT.line}`, background: TT.surface, color: TT.ink,
+            fontFamily: 'Inter', fontSize: 14, outline: 'none',
+          }}/>
+          <StrideButton variant="primary" style={{ flex: 'none', opacity: custom ? 1 : 0.5 }} onClick={() => custom && onPick(custom)}>Move</StrideButton>
+        </div>
       </div>
     </div>
   );
@@ -2176,7 +2496,12 @@ function WeightScreen({ go }) {
   const first = hasData ? h[0].kg : null;
   const change = hasData ? (last - first).toFixed(1) : null;
   const goalKg = u.goalWeightKg || null;
-  const [showLog, setShowLog] = React.useState(false);
+  const [showLog, setShowLog] = React.useState(() => {
+    // Deep-linked from the morning weigh-in notification tap → open the log sheet
+    // straight away (bridge.js sets the flag, routes here via window.__strideGo).
+    if (window.__strideOpenWeightLog) { window.__strideOpenWeightLog = false; return true; }
+    return false;
+  });
   const [val, setVal] = React.useState(() => (hasData ? String(last) : ''));
   const [saving, setSaving] = React.useState(false);
   // Morning weigh-in reminder — daily local notification at 6:00, toggleable.
@@ -2453,12 +2778,19 @@ function ProfileScreen({ go, persona, setPersona }) {
     if (window.__strideOpenNotes) { window.__strideOpenNotes = false; return true; }
     return false;
   });
+  // Personal notes ARE the coach's standing instructions, so they live on the
+  // profile (preferences.notes) — the coach reads them when writing plans, chat
+  // replies and pokes. localStorage is only an offline mirror; a note left there
+  // by an older build gets pushed up on the next save.
   const [notes, setNotes] = React.useState(() => {
+    if (setup.notes) return setup.notes;
     try { return localStorage.getItem('stride_coach_notes') || ''; } catch (e) { return ''; }
   });
   const saveNotes = (val) => {
     setNotes(val);
     try { localStorage.setItem('stride_coach_notes', val); } catch (e) {}
+    return Promise.resolve(window.__stridePatchProfile && window.__stridePatchProfile({ notes: val }))
+      .then(() => { if (window.__strideRefresh) window.__strideRefresh(); });
   };
   const notesPreview = notes.trim() ? notes.trim().replace(/\s+/g, ' ').slice(0, 38) + (notes.trim().length > 38 ? '…' : '') : 'Tell your coach what to keep in mind';
   const trainer = (persona && persona.name) || 'Coach';
@@ -2559,6 +2891,11 @@ function ProfileScreen({ go, persona, setPersona }) {
                 ))}
               </div>
             </div>
+            <Row icon="sparkles" label={window.t('AI model')} sub={(() => {
+              const c = (window.STRIDE_AI && window.STRIDE_AI.connection) || {};
+              if (!c.provider || c.provider === 'free') return window.t('Free built-in');
+              return c.provider + (c.model ? ' · ' + c.model : '');
+            })()} onClick={() => go('ai-connect')}/>
             <Row icon="settings" label="Units & equipment" sub="Kg · Metric"/>
             <Row icon="bolt" label="Notifications" onClick={() => setNotifOpen(true)}/>
             <Row icon="heart" label="Health & Apple Watch" sub="Connected"/>
@@ -2714,13 +3051,14 @@ function CoachNotesBody({ notes, onSave, onClose, trainer }) {
   const [draft, setDraft] = React.useState(notes);
   const SUGGESTIONS = [
     'Bad right shoulder — no heavy overhead',
-    'Prefer dumbbells over barbell',
+    'Prefer dumbells over barbell',
     'Keep sessions under 60 min',
     'I train early mornings, low energy',
     'Love supersets, hate long rests',
     'Vegetarian — pace the volume',
     'No box jumps — bad knees',
     'Push me on squats',
+    'Poke me to train even on rest days',
   ];
   const addChip = (s) => setDraft((d) => (d.trim() ? d.replace(/\s*$/, '') + '\n• ' + s : '• ' + s));
   return (
@@ -2945,5 +3283,5 @@ function ToggleRow({ icon, label, sub, on, onChange, last }) {
 
 Object.assign(window, {
   HomeScreen, PlanScreen, WeightScreen, ProfileScreen, AICoachScreen, BlockDetailScreen,
-  Sheet, SectionHeader, BigStat, ToggleSeg, Row, SessionDetail,
+  Sheet, SectionHeader, BigStat, ToggleSeg, Row, SessionDetail, AILogBody, strideFindSession,
 });
