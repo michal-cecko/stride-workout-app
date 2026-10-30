@@ -266,7 +266,7 @@ function Chip({ children, color = T.ink, bg = T.lineSoft, ink = T.ink, dot, styl
 }
 
 // ── Action button ─────────────────────────────────────────────
-function StrideButton({ children, onClick, variant = 'primary', size = 'md', icon, iconRight, block, style }) {
+function StrideButton({ children, onClick, variant = 'primary', size = 'md', icon, iconRight, block, style, disabled = false }) {
   const sizes = {
     sm: { padding: '8px 14px', font: 13, h: 36 },
     md: { padding: '14px 20px', font: 15, h: 52 },
@@ -281,13 +281,13 @@ function StrideButton({ children, onClick, variant = 'primary', size = 'md', ico
   };
   const sz = sizes[size];
   return (
-    <button onClick={onClick} style={{
+    <button onClick={onClick} disabled={disabled} style={{
       ...variants[variant], ...sz,
       width: block ? '100%' : 'auto',
       borderRadius: 14,
       fontFamily: 'Archivo, sans-serif', fontWeight: 800,
       fontSize: sz.font, letterSpacing: 0.3,
-      textTransform: 'uppercase', cursor: 'pointer',
+      textTransform: 'uppercase', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1,
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
       ...style,
     }}>

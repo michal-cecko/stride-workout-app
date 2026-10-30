@@ -2599,9 +2599,9 @@ function WeightScreen({ go }) {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 14.5, color: TT.ink }}>Morning weigh-in reminder</div>
-              <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, marginTop: 2 }}>{nativeLN ? 'Every day at 6:00' : 'Available on your phone'}</div>
+              <div style={{ fontFamily: 'Inter', fontSize: 12, color: TT.ink3, marginTop: 2 }}>{window.StridePWA ? 'Choose your reminder time in Notifications.' : nativeLN ? 'Every day at 6:00' : 'Available on your phone'}</div>
             </div>
-            <StrideToggle on={remindOn} onChange={toggleReminder}/>
+            {window.StridePWA ? <IconBtn icon="arrowRight" onClick={() => { window.__strideOpenNotifications = true; go('profile'); }}/> : <StrideToggle on={remindOn} onChange={toggleReminder}/>}
           </Card>
         </div>
 
@@ -2664,8 +2664,11 @@ function WeightScreen({ go }) {
   );
 }
 
-// Notification settings sheet — the single place both notification types live.
 function NotificationsBody() {
+  return window.StridePWA ? <WebNotificationsBody/> : <NativeNotificationsBody/>;
+}
+
+function NativeNotificationsBody() {
   const nativeLN = !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications);
   const read = (k) => { try { return localStorage.getItem(k) === '1'; } catch (e) { return false; } };
   const [weighOn, setWeighOn] = React.useState(() => read('stride_weigh_reminder'));
@@ -2800,7 +2803,8 @@ function ProfileScreen({ go, persona, setPersona }) {
   const injuriesList = window.STRIDE_INJURIES || [];
   // Personal records sheet
   const [prsOpen, setPrsOpen] = React.useState(false);
-  const [notifOpen, setNotifOpen] = React.useState(false);
+  const [notifOpen, setNotifOpen] = React.useState(() => { const open = !!window.__strideOpenNotifications; window.__strideOpenNotifications = false; return open; });
+  const [webAppOpen, setWebAppOpen] = React.useState(false);
   const [prs, setPrs] = React.useState(() => window.STRIDE_PRS || []);
   const [prAdding, setPrAdding] = React.useState(false);
   const savePr = (pr) => window.__strideSavePr(pr).then(() => { setPrs(window.STRIDE_PRS || []); setPrAdding(false); });
@@ -2898,6 +2902,7 @@ function ProfileScreen({ go, persona, setPersona }) {
             })()} onClick={() => go('ai-connect')}/>
             <Row icon="settings" label="Units & equipment" sub="Kg · Metric"/>
             <Row icon="bolt" label="Notifications" onClick={() => setNotifOpen(true)}/>
+            {window.StridePWA && <Row icon="info" label="Install & saved data" onClick={() => setWebAppOpen(true)}/>}
             <Row icon="heart" label="Health & Apple Watch" sub="Connected"/>
             <Row icon="info" label="About Stride"/>
           </div>
@@ -2938,6 +2943,7 @@ function ProfileScreen({ go, persona, setPersona }) {
           <NotificationsBody/>
         </Sheet>
       )}
+      {webAppOpen && <Sheet title="Install & saved data" onClose={() => setWebAppOpen(false)}><WebAppBody/></Sheet>}
 
       {setupOpen && (
         <Sheet title={window.t('Training preferences')} onClose={() => setSetupOpen(false)}>

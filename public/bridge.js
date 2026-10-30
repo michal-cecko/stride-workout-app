@@ -20,7 +20,8 @@
     var headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
     if (token) headers.Authorization = 'Bearer ' + token;
     Object.assign(headers, opts.headers || {});
-    return fetch(API + path, Object.assign({}, opts, { headers: headers })).then(function (r) {
+    var options = Object.assign({}, opts, { headers: headers });
+    return (window.StridePWA ? window.StridePWA.fetch(API + path, options, token) : fetch(API + path, options)).then(function (r) {
       return (r.status === 204 ? Promise.resolve(null) : r.json().catch(function () { return null; }))
         .then(function (body) {
           if (!r.ok) {
@@ -31,6 +32,57 @@
         });
     });
   }
+
+  window.__stridePush = {
+    config: function () { return api('/push/config'); },
+    save: function (preferences) {
+      return api('/push/preferences', { method: 'PATCH', body: JSON.stringify(Object.assign({
+        notification_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }, preferences)) });
+    },
+    enable: function () {
+      var pwa = window.StridePWA;
+      if (!pwa || !pwa.pushSupported) return Promise.reject(new Error('Add Stride to your Home Screen first, then open it there.'));
+      var permission = pwa.permission();
+      return permission.then(function (state) {
+        if (state !== 'granted') throw new Error('Notifications are blocked. Allow them in your device settings.');
+        return Promise.all([pwa.ready(), api('/push/config')]);
+      }).then(function (results) {
+        var reg = results[0], config = results[1];
+        if (!config.configured || !config.public_key) throw new Error('Notifications are not configured on the server yet.');
+        var key = config.public_key.replace(/-/g, '+').replace(/_/g, '/');
+        var bytes = Uint8Array.from(atob(key + '='.repeat((4 - key.length % 4) % 4)), function (c) { return c.charCodeAt(0); });
+        return reg.pushManager.getSubscription().then(function (subscription) {
+          return subscription || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+        });
+      }).then(function (subscription) {
+        return api('/push/subscriptions', { method: 'POST', body: JSON.stringify({ subscription: subscription.toJSON() }) })
+          .then(function () { return window.__stridePush.save({}); })
+          .catch(function (error) { return subscription.unsubscribe().then(function () { throw error; }); });
+      });
+    },
+    enabled: function () {
+      if (!window.StridePWA || !window.StridePWA.pushSupported) return Promise.resolve(false);
+      return window.StridePWA.ready().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+        if (!sub || Notification.permission !== 'granted') return false;
+        return api('/push/config?endpoint=' + encodeURIComponent(sub.endpoint)).then(function (config) { return config.subscribed === true; });
+      });
+    },
+    disable: function () {
+      if (!window.StridePWA || !window.StridePWA.pushSupported) return Promise.resolve();
+      return window.StridePWA.ready().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+        if (!sub) return;
+        return api('/push/subscriptions', { method: 'DELETE', body: JSON.stringify({ endpoint: sub.endpoint }) })
+          .catch(function () {}).then(function () { return sub.unsubscribe(); });
+      });
+    },
+    test: function () {
+      return window.StridePWA.ready().then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+        if (!sub) throw new Error('Enable notifications first.');
+        return api('/push/test', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) });
+      });
+    },
+  };
 
   function fmtDate(iso) {
     if (!iso) return '';
@@ -80,20 +132,26 @@
 
   // Sign out: revoke the token server-side (best-effort), clear local session +
   // per-account UI flags, then reload back to the login gate.
-  window.__strideLogout = function () {
-    return api('/auth/logout', { method: 'POST' }).catch(function () {}).then(function () {
-      try {
-        ['stride_token', 'stride_lang', 'stride_just_onboarded', 'stride_plan_degraded', 'stride_today_done']
-          .forEach(function (k) { localStorage.removeItem(k); });
-      } catch (e) {}
-      token = null;
-      location.reload();
-    });
+  window.__strideLogout = async function () {
+    if (window.StridePWA) {
+      try { await window.StridePWA.clear(); }
+      catch (e) { alert(window.t ? window.t(e.message) : e.message); return; }
+    }
+    await window.__stridePush.disable().catch(function () {});
+    await api('/auth/logout', { method: 'POST' }).catch(function () {});
+    ['stride_token', 'stride_lang', 'stride_just_onboarded', 'stride_plan_degraded', 'stride_today_done']
+      .forEach(function (key) { localStorage.removeItem(key); });
+    token = null;
+    location.reload();
   };
 
   // TEST: reset the account to a blank pre-onboarding state on the server, then
   // log out — so the next sign-in starts the setup wizard from scratch.
-  window.__strideResetApp = function () {
+  window.__strideResetApp = async function () {
+    if (window.StridePWA && (await window.StridePWA.pending()).length) {
+      alert(window.t('Connect and sync your saved changes before resetting the app.'));
+      return;
+    }
     return api('/profile/reset', { method: 'POST' })
       .then(function () { return window.__strideLogout(); })
       .catch(function (e) { console.error('Stride: reset failed.', e); alert('Reset failed — please try again.'); });
@@ -166,7 +224,9 @@
   // Log a weigh-in (backend upserts one entry per day) and refresh the history
   // global in place so the chart updates without a full reload.
   window.__strideLogWeight = function (kg) {
-    return api('/weight', { method: 'POST', body: JSON.stringify({ kg: kg }) })
+    var now = new Date();
+    var date = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    return api('/weight', { method: 'POST', body: JSON.stringify({ kg: kg, recorded_on: date }) })
       .then(function () { return api('/weight'); })
       .then(function (w) {
         var hist = (w.entries || []).map(function (e) { return { d: fmtDate(e.date), kg: e.kg }; });
@@ -179,13 +239,12 @@
 
   // ---- morning weigh-in reminder ----------------------------------------------
   // Daily local notification at 06:00 (id 601), toggleable from the Weight
-  // screen. No-ops gracefully in a browser (plugin only exists on device).
+  // screen.
   window.__strideWeighReminder = function (on) {
-    try { localStorage.setItem('stride_weigh_reminder', on ? '1' : '0'); } catch (e) {}
     var LN = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
-    if (!LN) return Promise.resolve({ ok: !on ? true : false, reason: 'unsupported' });
+    if (!LN) return Promise.resolve({ ok: !on, reason: 'unsupported' });
     if (!on) {
-      return LN.cancel({ notifications: [{ id: 601 }] }).then(function () { return { ok: true }; });
+      return LN.cancel({ notifications: [{ id: 601 }] }).then(function () { localStorage.setItem('stride_weigh_reminder', '0'); return { ok: true }; });
     }
     return LN.requestPermissions().then(function (perm) {
       if (perm.display !== 'granted') return { ok: false, reason: 'denied' };
@@ -199,7 +258,10 @@
           // open (see the localNotificationActionPerformed listener below).
           extra: { action: 'log-weight' },
         }],
-      }).then(function () { return { ok: true }; });
+      }).then(function () {
+        localStorage.setItem('stride_weigh_reminder', '1');
+        return { ok: true };
+      });
     });
   };
 
@@ -298,7 +360,7 @@
   // server-side. Fire-and-forget: never blocks or disrupts the workout on a hiccup.
   window.__strideStartSession = function (id) {
     if (id == null) return Promise.resolve(null);
-    return api('/sessions/' + id + '/start', { method: 'POST', body: '{}' }).catch(function () { return null; });
+    return api('/sessions/' + id + '/start', { method: 'POST', body: JSON.stringify({ started_at: new Date().toISOString() }) }).catch(function () { return null; });
   };
 
   // Save one set's result to the backend as it's completed (metric-keyed: reps /
@@ -315,7 +377,7 @@
   // safe: resolves null when there's no real (backend) session id.
   window.__strideCompleteSession = function (id, body) {
     if (id == null) return Promise.resolve(null);
-    return api('/sessions/' + id + '/complete', { method: 'POST', body: JSON.stringify(body || {}) })
+    return api('/sessions/' + id + '/complete', { method: 'POST', body: JSON.stringify(Object.assign({ completed_at: new Date().toISOString() }, body)) })
       .then(function (res) {
         var refresh = window.__strideRefresh ? window.__strideRefresh() : Promise.resolve();
         return refresh.then(function () { return res && res.session; });
@@ -347,6 +409,7 @@
 
   // ---- map live API → prototype globals --------------------------------------
   function loadLive() {
+    if (window.StridePWA) window.StridePWA.setOffline(false);
     return Promise.all([
       api('/auth/me'), api('/home'), api('/goals'), api('/plan'),
       api('/injuries'), api('/weight'), api('/library'), api('/spots'),
@@ -910,13 +973,14 @@
   }
 
   function boot() {
-    return loadLive().catch(function (e) {
+    return (window.StridePWA ? window.StridePWA.sync(false).catch(function () {}) : Promise.resolve()).then(loadLive).catch(function (e) {
       if (e && (e.status === 401 || e.status === 403)) {
         localStorage.removeItem('stride_token'); token = null;
         showLoginGate(e.status === 403 ? (e.message || 'Stride access is not enabled for this account.') : 'Your session expired — please sign in again.');
         throw e;
       }
-      console.error('Stride: live data failed, booting with mock data.', e);
+      showLoginGate(navigator.onLine === false ? 'Connect to the internet once to save your account on this device.' : 'Could not load your account. Check your connection and sign in again.');
+      throw e;
     }).then(function () {
       // Push anything that only exists on this device before the UI can write
       // over it (best-effort: never blocks the app from starting).
@@ -926,6 +990,7 @@
       if (login) login.remove();
       return bootProto();
     }).then(function () {
+      if (window.StridePWA) window.StridePWA.setOffline(!!window.STRIDE_OFFLINE);
       // Refresh today's coach pokes with current context (no-op if disabled/browser).
       if (window.__strideSchedulePokes) window.__strideSchedulePokes();
     }).catch(function () { /* 401 handled in showLogin */ });
@@ -1015,6 +1080,8 @@
           password: document.getElementById('lg-pass').value,
           device_name: 'Stride Web',
         }),
+      }).then(function (res) {
+        return (window.StridePWA ? window.StridePWA.bind(res.token, res.user.id, API) : Promise.resolve()).then(function () { return res; });
       }).then(function (res) {
         token = res.token; localStorage.setItem('stride_token', token);
         var enable = document.getElementById('lg-bio-enable');
