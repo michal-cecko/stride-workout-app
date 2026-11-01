@@ -656,6 +656,8 @@ window.STRIDE_I18N = {
     'Do it now': 'Odcvičiť teraz',
     'Do it again': 'Odcvičiť znova',
     'Reschedule': 'Preplánovať',
+    'Mark as not done': 'Označiť ako neodtrénované',
+    'Scroll to latest': 'Prejsť na najnovšie',
     'Move': 'Presunúť',
     // Session detail — move-to-another-day picker
     'Move session': 'Presunúť tréning',
@@ -831,6 +833,8 @@ window.STRIDE_I18N = {
     'Ask {name} to change this block…': 'Popros {name:acc} o zmenu tohto bloku…',
     'Tell me how to change this block — I’ll apply it to every session. e.g. “always start with calisthenics first.”': 'Povedz mi, ako zmeniť tento blok — použijem to na každý tréning. napr. „vždy začínať kalistenikou“.',
     'Sorry — I couldn’t reach your coach just now.': 'Prepáč — práve teraz sa nedá spojiť s koučom.',
+    'Not delivered': 'Neodoslané',
+    'Retry': 'Skúsiť znova',
 
     // ── onboarding: coach's clarifying questions ──
     'A couple quick questions…': 'Pár rýchlych otázok…',

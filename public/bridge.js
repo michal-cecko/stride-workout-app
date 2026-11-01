@@ -407,6 +407,19 @@
       });
   };
 
+  // Revert a completed session back to "not trained yet" (today's / upcoming
+  // only; the backend rejects past ones). Clears the local done flag when it was
+  // today's session so Home drops the done card, then refreshes the globals.
+  window.__strideUncompleteSession = function (id) {
+    if (id == null) return Promise.resolve(null);
+    return api('/sessions/' + id + '/uncomplete', { method: 'POST' }).then(function (res) {
+      var s = res && res.session;
+      if (s && s.status === 'today') { try { localStorage.removeItem('stride_today_done'); } catch (e) {} }
+      var refresh = window.__strideRefresh ? window.__strideRefresh() : Promise.resolve();
+      return refresh.then(function () { return s; });
+    });
+  };
+
   // ---- map live API → prototype globals --------------------------------------
   function loadLive() {
     if (window.StridePWA) window.StridePWA.setOffline(false);
@@ -962,6 +975,17 @@
   // JSX-transformed at build time — see vite.config.ts's strideProto plugin). It's
   // one classic script, so cross-file globals + execution order behave 1:1 with the
   // old runtime-Babel path, minus the on-device transpile + CDN.
+  // Fade out (or immediately remove) the index.html boot splash. Kept visible
+  // from the first webview frame through Face ID + data load, then dismissed
+  // once the app has painted underneath.
+  function hideBoot(immediate) {
+    var el = document.getElementById('stride-boot');
+    if (!el) return;
+    if (immediate) { el.remove(); return; }
+    el.classList.add('sb-hide');
+    setTimeout(function () { if (el.parentNode) el.remove(); }, 460);
+  }
+
   function bootProto() {
     return new Promise(function (resolve, reject) {
       var s = document.createElement('script');
@@ -991,6 +1015,8 @@
       return bootProto();
     }).then(function () {
       if (window.StridePWA) window.StridePWA.setOffline(!!window.STRIDE_OFFLINE);
+      // App bundle loaded + rendering under the splash — let it paint, then fade.
+      setTimeout(hideBoot, 320);
       // Refresh today's coach pokes with current context (no-op if disabled/browser).
       if (window.__strideSchedulePokes) window.__strideSchedulePokes();
     }).catch(function () { /* 401 handled in showLogin */ });
@@ -1042,6 +1068,7 @@
   }
 
   function showLogin(message, bio) {
+    hideBoot(true); // the login gate replaces the splash
     var label = bioTypeLabel(bio);
     var canUnlock = !!(bio && token && bioEnabled());
     var root = document.getElementById('stride-login') || document.createElement('div');

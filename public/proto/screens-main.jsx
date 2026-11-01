@@ -1200,6 +1200,15 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
       .then(onClose).catch(onClose);
   };
 
+  // Revert a completed session to "not trained yet" — today's or an upcoming one
+  // only (a past session is history; the backend enforces that too).
+  const revert = () => {
+    if (!s.id || !window.__strideUncompleteSession) { onClose(); return; }
+    window.__strideUncompleteSession(s.id).then(onClose).catch(onClose);
+  };
+  const sessTodayISO = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const canRevert = done && s.scheduledDate && String(s.scheduledDate).slice(0, 10) >= sessTodayISO;
+
   // "Do it again" vs "Do it now": has this exact training (same title) ever
   // been completed before, anywhere in the plan history?
   const doneBefore = [(window.STRIDE_WEEK_PLAN || [])]
@@ -1435,10 +1444,15 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
           </>
         )}
         {done && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <StrideButton variant="ghost" style={{ flex: 1, minWidth: 0 }}>View summary</StrideButton>
-            <StrideButton variant="primary" icon="plus" style={{ flex: 1, minWidth: 0 }}>Repeat</StrideButton>
-          </div>
+          <>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <StrideButton variant="ghost" style={{ flex: 1, minWidth: 0 }}>View summary</StrideButton>
+              <StrideButton variant="primary" icon="plus" style={{ flex: 1, minWidth: 0 }}>Repeat</StrideButton>
+            </div>
+            {canRevert && (
+              <StrideButton variant="ghost" icon="skip" block onClick={revert}>{window.t('Mark as not done')}</StrideButton>
+            )}
+          </>
         )}
         {skipped && (
           <div style={{ display: 'flex', gap: 8 }}>

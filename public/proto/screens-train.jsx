@@ -1722,10 +1722,29 @@ function ChatScreen({ go, persona }) {
   const [searching, setSearching] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const searchRef = React.useRef(null);
+  const scrollRef = React.useRef(null);
+  const [showDown, setShowDown] = React.useState(false);
 
   React.useEffect(() => {
     if (searching && searchRef.current) searchRef.current.focus();
   }, [searching]);
+
+  // Scroll-to-latest: track distance from the bottom, follow new messages when
+  // already near the bottom, and open the chat at the latest message.
+  const scrollToBottom = (smooth) => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+  };
+  const onChatScroll = () => {
+    const el = scrollRef.current;
+    if (el) setShowDown(el.scrollHeight - el.scrollTop - el.clientHeight > 120);
+  };
+  React.useEffect(() => { scrollToBottom(false); }, []);
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 320) scrollToBottom(false);
+    onChatScroll();
+  }, [messages, typing]);
 
   const q = strideFoldText(query.trim());
   const filtered = q
@@ -1735,23 +1754,46 @@ function ChatScreen({ go, persona }) {
     : messages;
   const matchCount = q ? filtered.length : 0;
 
-  const send = (text) => {
-    const t = (text || input).trim();
-    if (!t) return;
-    setMessages(m => [...m, { who: 'me', text: t }]);
-    setInput('');
+  // Fire (or re-fire) the coach call for one user message, keyed by its id so a
+  // failure can be pinned to — and retried from — that exact bubble.
+  const msgSeq = React.useRef(0);
+  const attempt = (t, id) => {
     setTyping(true);
     // Live coach (real API) when bridged; otherwise fall back to the canned demo reply.
     if (window.__strideCoach) {
       window.__strideCoach.send(t)
-        .then(reply => { setTyping(false); setMessages(m => [...m, reply]); })
-        .catch(() => { setTyping(false); setMessages(m => [...m, { who: 'ai', text: "Sorry — I couldn't reach your coach just now. Try again in a moment." }]); });
+        .then(reply => {
+          setTyping(false);
+          setMessages(m => [...m.map(x => x.id === id ? { ...x, failed: false } : x), reply]);
+        })
+        .catch(() => {
+          // No stand-alone error bubble: mark the user's message failed so a
+          // Retry button appears right under it (Part 1 removes the server-side
+          // "couldn't complete" case; this handles genuine network/API failures).
+          setTyping(false);
+          setMessages(m => m.map(x => x.id === id ? { ...x, failed: true } : x));
+        });
       return;
     }
     setTimeout(() => {
       setTyping(false);
       setMessages(m => [...m, { who: 'ai', ...personaReply(persona.key, t) }]);
     }, 1200);
+  };
+
+  const send = (text) => {
+    const t = (text || input).trim();
+    if (!t) return;
+    const id = 'u' + (++msgSeq.current);
+    setMessages(m => [...m, { who: 'me', text: t, id }]);
+    setInput('');
+    attempt(t, id);
+  };
+
+  const retry = (m) => {
+    if (!m || !m.text) return;
+    setMessages(list => list.map(x => x.id === m.id ? { ...x, failed: false } : x));
+    attempt(m.text, m.id);
   };
 
   const openCard = (card) => {
@@ -1805,9 +1847,9 @@ function ChatScreen({ go, persona }) {
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 176px' }}>
+      <div ref={scrollRef} onScroll={onChatScroll} style={{ flex: 1, overflowY: 'auto', padding: '0 20px 176px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filtered.map((m, i) => <ChatBubble key={i} m={m} onCard={openCard} highlight={q}/>)}
+          {filtered.map((m, i) => <ChatBubble key={i} m={m} onCard={openCard} onRetry={retry} highlight={q}/>)}
           {typing && !q && <ChatBubble m={{ who: 'ai', text: '…', typing: true }}/>}
         </div>
 
@@ -1837,6 +1879,17 @@ function ChatScreen({ go, persona }) {
           </div>
         )}
       </div>
+
+      {/* Scroll to latest — shown only when scrolled up from the bottom */}
+      {showDown && !searching && (
+        <button onClick={() => scrollToBottom(true)} aria-label={window.t('Scroll to latest')} style={{
+          position: 'absolute', right: 18, bottom: 162, zIndex: 30,
+          width: 40, height: 40, borderRadius: 999, cursor: 'pointer', border: `1px solid ${TX.line}`,
+          background: TX.ink, display: 'grid', placeItems: 'center', boxShadow: '0 6px 18px rgba(0,0,0,0.28)',
+        }}>
+          <StrideIcon name="arrowDown" size={19} color="#fff"/>
+        </button>
+      )}
 
       {/* Composer */}
       <div style={{
@@ -1997,7 +2050,7 @@ function ConversationHistory({ onOpen, onNew, onDeletedActive }) {
   );
 }
 
-function ChatBubble({ m, onCard, highlight }) {
+function ChatBubble({ m, onCard, onRetry, highlight }) {
   const isMe = m.who === 'me';
   const hasCards = !isMe && m.cards && m.cards.length > 0;
   const renderText = (txt) => {
@@ -2030,6 +2083,18 @@ function ChatBubble({ m, onCard, highlight }) {
               <Dot/><Dot d="0.15s"/><Dot d="0.3s"/>
             </span>
           ) : renderText(m.text)}
+        </div>
+      )}
+      {isMe && m.failed && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5 }}>
+          <span style={{ fontFamily: 'Inter', fontSize: 11, color: '#C0392B' }}>{window.t('Not delivered')}</span>
+          <button onClick={() => onRetry && onRetry(m)} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '4px 12px', borderRadius: 9, border: `1px solid ${TX.line}`, background: TX.surface, color: TX.ink,
+            fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 11.5, cursor: 'pointer',
+          }}>
+            <StrideIcon name="history" size={12} color={TX.ink}/>{window.t('Retry')}
+          </button>
         </div>
       )}
       {hasCards && (
