@@ -30,27 +30,30 @@ const strideIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 function WorkoutsScreen({ go, persona }) {
   const [view, setView] = React.useState('week'); // 'week' | 'month'
   const [openSession, setOpenSession] = React.useState(null);
+  const wide = useStrideWide();
+  const close = () => setOpenSession(null);
 
   return (
-    <Screen>
-      <StrideHeader title="Workouts" kicker={window.t('What you actually trained')}/>
-      <div style={{ padding: '0 20px 16px', display: 'flex', gap: 8 }}>
-        <ToggleSeg value={view} onChange={setView} options={[
-          { v: 'week', label: 'Week' },
-          { v: 'month', label: 'Month' },
-        ]}/>
-      </div>
+    <StrideSplit title={openSession && openSession.title} onClose={close}
+      empty={window.t('Pick a workout to see what you did.')}
+      detail={openSession && <SessionDetail key={openSession.id} session={openSession} go={go} persona={persona} onClose={close}/>}
+      list={(
+        <Screen>
+          {/* The sidebar links to Routines on desktop. */}
+          <StrideHeader title="Workouts" kicker={window.t('What you actually trained')}
+            right={!wide && <StrideButton variant="ghost" size="sm" icon="timer" onClick={() => go('routines')}>Routines</StrideButton>}/>
+          <div style={{ padding: '0 20px 16px', display: 'flex', gap: 8 }}>
+            <ToggleSeg value={view} onChange={setView} options={[
+              { v: 'week', label: 'Week' },
+              { v: 'month', label: 'Month' },
+            ]}/>
+          </div>
 
-      {view === 'week'
-        ? <WorkoutsWeek onOpen={setOpenSession}/>
-        : <WorkoutsMonth onOpen={setOpenSession}/>}
-
-      {openSession && (
-        <Sheet title={openSession.title} onClose={() => setOpenSession(null)}>
-          <SessionDetail session={openSession} go={go} persona={persona} onClose={() => setOpenSession(null)}/>
-        </Sheet>
-      )}
-    </Screen>
+          {view === 'week'
+            ? <WorkoutsWeek onOpen={setOpenSession} selected={openSession}/>
+            : <WorkoutsMonth onOpen={setOpenSession} selected={openSession}/>}
+        </Screen>
+      )}/>
   );
 }
 
@@ -73,7 +76,7 @@ function WorkoutTotals({ sessions, label }) {
   );
 }
 
-function WorkoutsWeek({ onOpen }) {
+function WorkoutsWeek({ onOpen, selected }) {
   const [offset, setOffset] = React.useState(0);
   const now = new Date();
   const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) + offset * 7);
@@ -92,13 +95,13 @@ function WorkoutsWeek({ onOpen }) {
       </div>
 
       <WorkoutTotals sessions={done} label={window.t('This week')}/>
-      <WorkoutList sessions={done} onOpen={onOpen} empty={window.t('No workouts logged this week.')}/>
+      <WorkoutList sessions={done} onOpen={onOpen} selected={selected} empty={window.t('No workouts logged this week.')}/>
       <div style={{ height: 24 }}/>
     </div>
   );
 }
 
-function WorkoutsMonth({ onOpen }) {
+function WorkoutsMonth({ onOpen, selected }) {
   const now = new Date();
   const [monthStart, setMonthStart] = React.useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
   const y = monthStart.getFullYear(), m = monthStart.getMonth();
@@ -165,13 +168,13 @@ function WorkoutsMonth({ onOpen }) {
         </div>
       </Card>
 
-      <WorkoutList sessions={done} onOpen={onOpen} empty={window.t('No workouts logged this month.')}/>
+      <WorkoutList sessions={done} onOpen={onOpen} selected={selected} empty={window.t('No workouts logged this month.')}/>
       <div style={{ height: 24 }}/>
     </div>
   );
 }
 
-function WorkoutList({ sessions, onOpen, empty }) {
+function WorkoutList({ sessions, onOpen, selected, empty }) {
   if (!sessions.length) {
     return (
       <Card style={{ padding: 18 }}>
@@ -183,7 +186,7 @@ function WorkoutList({ sessions, onOpen, empty }) {
     <div style={{ background: TW.surface, border: `1px solid ${TW.line}`, borderRadius: 16, overflow: 'hidden' }}>
       {sessions.map((s, i) => (
         <button key={s.id} onClick={() => onOpen(s)} style={{
-          width: '100%', textAlign: 'left', cursor: 'pointer', background: 'none',
+          width: '100%', textAlign: 'left', cursor: 'pointer', background: selected && selected.id === s.id ? TW.lineSoft : 'none',
           border: 'none', borderTop: i ? `1px solid ${TW.lineSoft}` : 'none',
           display: 'flex', alignItems: 'center', gap: 12, padding: '13px 14px',
         }}>

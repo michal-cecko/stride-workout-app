@@ -213,6 +213,90 @@ function StrideBottomNav({ tab, onTab, onMore }) {
   );
 }
 
+// ── Desktop (web on a wide screen) ────────────────────────────
+// Wide = the full-bleed web/native build on a screen of 1024 px or more. The
+// device-frame preview (?frame=1) always stays a phone.
+const STRIDE_WIDE_QUERY = '(min-width: 1024px)';
+function useStrideWide() {
+  const query = () => !!window.STRIDE_NATIVE && window.matchMedia(STRIDE_WIDE_QUERY).matches;
+  const [wide, setWide] = React.useState(query);
+  React.useEffect(() => {
+    const mq = window.matchMedia(STRIDE_WIDE_QUERY);
+    const on = () => setWide(query());
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return wide;
+}
+
+// Left sidebar that replaces the bottom nav on desktop. `compact` is an icon rail
+// for screens that need the width (the routine studio).
+function StrideSideNav({ tab, onTab, compact }) {
+  const items = [
+    { id: 'home',     icon: 'home',   label: 'Today' },
+    { id: 'plan',     icon: 'cal',    label: 'Plan' },
+    { id: 'library',  icon: 'book',   label: 'Library' },
+    { id: 'workouts', icon: 'muscle', label: 'Workouts' },
+    { id: 'routines', icon: 'timer',  label: 'Routines' },
+    { id: 'chat',     icon: 'chat',   label: 'Coach' },
+    { id: 'profile',  icon: 'user',   label: 'You' },
+  ];
+  return (
+    <nav style={{
+      width: compact ? 72 : 232, flexShrink: 0, height: '100%', boxSizing: 'border-box', background: T.surface,
+      borderRight: `1px solid ${T.line}`, padding: compact ? '24px 10px' : '24px 14px', display: 'flex', flexDirection: 'column', gap: 4,
+    }}>
+      <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 24, letterSpacing: -0.5, padding: compact ? '0 0 22px' : '0 12px 22px', textAlign: compact ? 'center' : 'left', color: T.ink }}>
+        {compact ? 'S' : 'STRIDE'}<span style={{ color: T.accent }}>.</span>
+      </div>
+      {items.map((it) => {
+        const active = tab === it.id;
+        return (
+          <button key={it.id} onClick={() => onTab(it.id)} aria-current={active ? 'page' : undefined}
+            aria-label={compact ? it.label : undefined} title={compact ? it.label : undefined} style={{
+            border: 'none', borderRadius: 12, padding: compact ? '12px 0' : '11px 12px', cursor: 'pointer', textAlign: 'left',
+            display: 'flex', alignItems: 'center', justifyContent: compact ? 'center' : 'flex-start', gap: 12,
+            background: active ? T.ink : 'transparent', color: active ? '#fff' : T.ink2,
+            fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: active ? 800 : 600,
+          }}>
+            <StrideIcon name={it.icon} size={20} strokeWidth={active ? 2.4 : 1.8} color={active ? T.volt : T.ink3}/>
+            {!compact && it.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+// List with a detail. On a phone the detail opens in a sheet. On desktop it sits
+// in a panel right of the list, so another row can be picked while it is open.
+// Give `detail` a key so its state resets when the row changes.
+function StrideSplit({ list, detail, title, onClose, empty }) {
+  const wide = useStrideWide();
+  if (!wide) return <>{list}{detail && <Sheet title={title} onClose={onClose}>{detail}</Sheet>}</>;
+  return (
+    <div style={{ display: 'flex', height: '100%' }}>
+      <div style={{ flex: 1, minWidth: 0, height: '100%' }}>{list}</div>
+      <aside aria-label={detail ? title : undefined} style={{
+        width: 'clamp(380px, 36%, 480px)', flexShrink: 0, height: '100%', boxSizing: 'border-box',
+        overflowY: 'auto', background: T.surface, borderLeft: `1px solid ${T.line}`, padding: '28px 24px 40px',
+      }}>
+        {detail ? (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <h3 style={{ margin: 0, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 20, color: T.ink }}>{title}</h3>
+              {onClose && <IconBtn icon="close" size={32} onClick={onClose}/>}
+            </div>
+            {detail}
+          </>
+        ) : (
+          <div style={{ height: '100%', display: 'grid', placeItems: 'center', textAlign: 'center', fontFamily: 'Inter', fontSize: 13.5, color: T.ink3, padding: '0 24px' }}>{empty}</div>
+        )}
+      </aside>
+    </div>
+  );
+}
+
 // ── Header with title + optional back / right action ──────────
 function StrideHeader({ title, kicker, back, onBack, right, sticky = false }) {
   return (
@@ -334,15 +418,18 @@ window.STRIDE_SAFE_TOP = window.STRIDE_SAFE_TOP || 56;
 
 // ── Screen container ──────────────────────────────────────────
 function Screen({ children, padded = true, style }) {
+  // Desktop has no bottom nav or notch, so it needs less room at the bottom and
+  // a bit more at the top.
+  const wide = useStrideWide();
   return (
     <div style={{
       background: T.bg,
       width: '100%', height: '100%',
       overflowY: 'auto', overflowX: 'hidden',
       position: 'relative',
-      paddingTop: window.STRIDE_SAFE_TOP,
+      paddingTop: wide ? 28 : window.STRIDE_SAFE_TOP,
       // Room for the bottom nav; native adds the home-indicator inset on top.
-      paddingBottom: window.STRIDE_NATIVE ? 'calc(100px + env(safe-area-inset-bottom))' : 100,
+      paddingBottom: wide ? 40 : window.STRIDE_NATIVE ? 'calc(100px + env(safe-area-inset-bottom))' : 100,
       ...(padded ? {} : {}),
       ...style,
     }}>
@@ -1034,9 +1121,10 @@ function strideIsInProgress(workout) {
 }
 
 Object.assign(window, {
+  StrideSplit,
   renderCoachMarkdown, useSwipeNav,
   StrideIcon, BodySilhouette, StrideLineChart, ProgressRing,
-  StrideBottomNav, StrideHeader, Chip, StrideButton, IconBtn, Card, Screen,
+  StrideBottomNav, StrideSideNav, useStrideWide, StrideHeader, Chip, StrideButton, IconBtn, Card, Screen,
   StrideToggle, useStridePrefs, setStridePref, readStridePrefs,
   readStrideSpots, saveStrideSpots, useStrideSpots, spotTypeMeta,
   readStrideEquipment, saveStrideEquipment, useStrideEquipment,

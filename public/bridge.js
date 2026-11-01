@@ -33,6 +33,35 @@
     });
   }
 
+  // Routines: timed classes built from work / rest / loop steps (screens-routines).
+  function routineBody(r) {
+    return JSON.stringify({ title: r.title.trim(), kind: r.kind, steps: r.steps });
+  }
+  function unwrap(body) { return body && body.data !== undefined ? body.data : body; }
+  window.__strideRoutines = {
+    list: function () {
+      return api('/routines').then(function (body) {
+        return (unwrap(body) || []).map(function (r) {
+          return Object.assign({}, r, {
+            total_seconds: r.total_seconds != null ? r.total_seconds : window.routineTotalSeconds(r.steps || []),
+            step_count: r.step_count != null ? r.step_count : window.routineCountSteps(r.steps || []),
+          });
+        });
+      });
+    },
+    get: function (id) { return api('/routines/' + id).then(unwrap); },
+    save: function (r) {
+      return api(r.id ? '/routines/' + r.id : '/routines', { method: r.id ? 'PUT' : 'POST', body: routineBody(r) }).then(unwrap);
+    },
+    remove: function (id) { return api('/routines/' + id, { method: 'DELETE' }); },
+    duplicate: function (id) { return api('/routines/' + id + '/duplicate', { method: 'POST' }).then(unwrap); },
+    // client_id lets the server drop a second copy when the offline outbox retries.
+    logRun: function (id, run) {
+      var clientId = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) + Math.random().toString(16).slice(2);
+      return api('/routines/' + id + '/runs', { method: 'POST', body: JSON.stringify(Object.assign({ client_id: clientId }, run)) });
+    },
+  };
+
   window.__stridePush = {
     config: function () { return api('/push/config'); },
     save: function (preferences) {
@@ -408,13 +437,18 @@
   };
 
   // Revert a completed session back to "not trained yet" (today's / upcoming
-  // only; the backend rejects past ones). Clears the local done flag when it was
-  // today's session so Home drops the done card, then refreshes the globals.
+  // only; the backend rejects past ones). Clears today's local done flag so Home
+  // drops the done card, then refreshes the globals.
   window.__strideUncompleteSession = function (id) {
     if (id == null) return Promise.resolve(null);
     return api('/sessions/' + id + '/uncomplete', { method: 'POST' }).then(function (res) {
       var s = res && res.session;
-      if (s && s.status === 'today') { try { localStorage.removeItem('stride_today_done'); } catch (e) {} }
+      // The flag holds the local date of the last finished workout. Clear it for
+      // today whatever status the UTC server returns (an early-started session
+      // comes back as planned).
+      var d = new Date();
+      var todayIso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      try { if (localStorage.getItem('stride_today_done') === todayIso) localStorage.removeItem('stride_today_done'); } catch (e) {}
       var refresh = window.__strideRefresh ? window.__strideRefresh() : Promise.resolve();
       return refresh.then(function () { return s; });
     });
@@ -628,7 +662,7 @@
         id: e.id, name: e.name, nameEn: e.name_en || e.name, diff: e.difficulty || '', equip: e.equipment || '',
         primary: (e.primary && e.primary[0]) || '', secondary: (e.secondary || []).join(' · '),
         metricType: e.metric_type || 'load',
-        video: e.video_url || '', description: e.description || '', source: e.source_url || '',
+        video: e.video_url || '', image: e.image_url || e.thumbnail_url || '', description: e.description || '', source: e.source_url || '',
       });
     });
     return {
@@ -680,9 +714,12 @@
       return { who: role === 'user' ? 'me' : 'ai', text: content, proposals: split.proposals, cards: split.cards };
     }
     window.__strideCoach = {
-      send: function (text) {
+      // clientId stays the same across retries of one bubble, so the server can
+      // tell a retry from a new message.
+      send: function (text, clientId) {
         return ensureConv().then(function (id) {
           var body = { message: text };
+          if (clientId) body.client_id = clientId;
           if (activeModel) body.model = activeModel; // honour the in-chat model switcher
           return api('/coach/conversations/' + id + '/messages', { method: 'POST', body: JSON.stringify(body) });
         }).then(function (res) {
@@ -1012,7 +1049,11 @@
     }).then(function () {
       var login = document.getElementById('stride-login');
       if (login) login.remove();
-      return bootProto();
+      return bootProto().catch(function (e) {
+        // Same way back in as a failed account load: the login gate retries boot.
+        showLoginGate('Could not load the app. Check your connection and try again.');
+        throw e;
+      });
     }).then(function () {
       if (window.StridePWA) window.StridePWA.setOffline(!!window.STRIDE_OFFLINE);
       // App bundle loaded + rendering under the splash — let it paint, then fade.
@@ -1042,6 +1083,7 @@
     'Sign in to Stride': 'Prihlásenie do Stride',
     'Unlock with Face ID': 'Odomknúť cez Face ID',
     'Sign in with Face ID next time': 'Nabudúce sa prihlásiť cez Face ID',
+    'Could not load the app. Check your connection and try again.': 'Aplikáciu sa nepodarilo načítať. Skontroluj pripojenie a skús to znova.',
   };
   function lt(s) { return (loginLang() === 'sk' && LOGIN_SK[s]) || s; }
 

@@ -86,6 +86,8 @@ function HomeScreen({ go, persona }) {
     setEnergyNote(note);
     try { note.trim() ? localStorage.setItem(checkInNoteKey, note) : localStorage.removeItem(checkInNoteKey); } catch (e) {}
   };
+  // Desktop: today's session and check-in on the left, goals and recent on the right.
+  const wide = useStrideWide();
   const dateStr = today.toLocaleDateString(window.strideLocale(), { weekday: 'long', month: 'short', day: 'numeric' });
 
   // "Starter plan" notice: the backend set ai_degraded because the AI couldn't
@@ -112,6 +114,8 @@ function HomeScreen({ go, persona }) {
         </div>
       </div>
 
+      <div style={wide ? { display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr)', alignItems: 'start' } : undefined}>
+      <div>
       {/* Starter-plan notice (deterministic fallback, not silently AI-tailored) */}
       {planDegraded && (
         <div style={{ padding: '4px 20px 0' }}>
@@ -254,6 +258,8 @@ function HomeScreen({ go, persona }) {
         )}
       </div>
 
+      </div>
+      <div style={wide ? { marginTop: -12 } : undefined}>
       {/* Goals snapshot — hidden until the user has set goals */}
       {window.STRIDE_GOALS.length > 0 && (
       <div style={{ padding: '22px 20px 0' }}>
@@ -310,6 +316,9 @@ function HomeScreen({ go, persona }) {
         </div>
       </div>
       )}
+
+      </div>
+      </div>
 
       {/* Spacer */}
       <div style={{ height: 20 }}/>
@@ -708,23 +717,31 @@ function PlanScreen({ go, persona }) {
     ? `${activeBlock.name} · ${window.t('Week {w} of {total}', { w: activeBlock.weekOf, total: activeBlock.weeks })}`
     : undefined;
 
-  return (
-    <Screen>
-      <StrideHeader title="Training Plan" kicker={planKicker} right={
-        <AILogButton scopes={['today', 'week', 'block']} scopeLabel="your full plan" persona={persona} go={go}/>
-      }/>
-      <div style={{ padding: '0 20px 16px', display: 'flex', gap: 8 }}>
-        <ToggleSeg value={view} onChange={setView} options={[
-          { v: 'week', label: 'Week' },
-          { v: 'month', label: 'Month' },
-          { v: 'block', label: 'Block' },
-        ]}/>
-      </div>
+  const [openSession, setOpenSession] = React.useState(null);
+  const close = () => setOpenSession(null);
 
-      {view === 'week' && <PlanWeekView week={week} go={go} persona={persona}/>}
-      {view === 'month' && <PlanMonthView go={go} persona={persona}/>}
-      {view === 'block' && <PlanBlockView go={go} persona={persona}/>}
-    </Screen>
+  return (
+    <StrideSplit title={openSession && openSession.title} onClose={close}
+      empty={window.t('Pick a session to see the details.')}
+      detail={openSession && <SessionDetail key={openSession.id} session={openSession} go={go} persona={persona} onClose={close}/>}
+      list={(
+        <Screen>
+          <StrideHeader title="Training Plan" kicker={planKicker} right={
+            <AILogButton scopes={['today', 'week', 'block']} scopeLabel="your full plan" persona={persona} go={go}/>
+          }/>
+          <div style={{ padding: '0 20px 16px', display: 'flex', gap: 8 }}>
+            <ToggleSeg value={view} onChange={setView} options={[
+              { v: 'week', label: 'Week' },
+              { v: 'month', label: 'Month' },
+              { v: 'block', label: 'Block' },
+            ]}/>
+          </div>
+
+          {view === 'week' && <PlanWeekView week={week} go={go} onOpen={setOpenSession}/>}
+          {view === 'month' && <PlanMonthView onOpen={setOpenSession}/>}
+          {view === 'block' && <PlanBlockView go={go} persona={persona}/>}
+        </Screen>
+      )}/>
   );
 }
 
@@ -747,8 +764,7 @@ function ToggleSeg({ value, onChange, options }) {
   );
 }
 
-function PlanWeekView({ week, go, persona }) {
-  const [openSession, setOpenSession] = React.useState(null);
+function PlanWeekView({ week, go, onOpen }) {
   // Paged by calendar week (Mon–Sun); swipe or chevrons move the window. `dir`
   // remembers which way the last page turn went so the incoming week slides in
   // from that side (see the stridePage* keyframes) instead of snapping.
@@ -810,20 +826,14 @@ function PlanWeekView({ week, go, persona }) {
         )}
         {displayRows.map((d, i) => {
           if (d.__rest) return <RestRow key={i} d={d} last={i === displayRows.length - 1}/>;
-          if (d.status === 'today') return <TodayRow key={i} d={d} go={go} onOpen={() => setOpenSession(d)}/>;
-          return <WeekRow key={i} d={d} last={i === displayRows.length - 1} onOpen={() => setOpenSession(d)}/>;
+          if (d.status === 'today') return <TodayRow key={i} d={d} go={go} onOpen={() => onOpen(d)}/>;
+          return <WeekRow key={i} d={d} last={i === displayRows.length - 1} onOpen={() => onOpen(d)}/>;
         })}
       </div>
       <div style={{ paddingTop: 18 }}>
         <StrideButton variant="ghost" block icon="plus">Add session</StrideButton>
       </div>
       <div style={{ height: 24 }}/>
-
-      {openSession && (
-        <Sheet title={openSession.title} onClose={() => setOpenSession(null)}>
-          <SessionDetail session={openSession} go={go} persona={persona} onClose={() => setOpenSession(null)}/>
-        </Sheet>
-      )}
     </div>
   );
 }
@@ -1202,9 +1212,13 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
 
   // Revert a completed session to "not trained yet" — today's or an upcoming one
   // only (a past session is history; the backend enforces that too).
+  const [revertError, setRevertError] = React.useState(null);
   const revert = () => {
     if (!s.id || !window.__strideUncompleteSession) { onClose(); return; }
-    window.__strideUncompleteSession(s.id).then(onClose).catch(onClose);
+    if (!window.confirm(window.t('Mark as not done? The logged sets of this workout will be deleted.'))) return;
+    setRevertError(null);
+    window.__strideUncompleteSession(s.id).then(onClose)
+      .catch((e) => setRevertError((e && e.status && e.message) || window.t('Could not change this workout. Check your connection and try again.')));
   };
   const sessTodayISO = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
   const canRevert = done && s.scheduledDate && String(s.scheduledDate).slice(0, 10) >= sessTodayISO;
@@ -1451,6 +1465,9 @@ function SessionDetail({ session: s, go, persona, onClose, startEditing = false 
             </div>
             {canRevert && (
               <StrideButton variant="ghost" icon="skip" block onClick={revert}>{window.t('Mark as not done')}</StrideButton>
+            )}
+            {revertError && (
+              <div style={{ fontFamily: 'Inter', fontSize: 12, color: '#C0392B', textAlign: 'center' }}>{revertError}</div>
             )}
           </>
         )}
@@ -2041,11 +2058,10 @@ function SessionStat({ label, value, dim }) {
   );
 }
 
-function PlanMonthView({ go, persona }) {
+function PlanMonthView({ onOpen }) {
   // REAL calendar: every session across all blocks, placed by scheduled date.
   const now = new Date();
   const [monthStart, setMonthStart] = React.useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
-  const [openSession, setOpenSession] = React.useState(null);
 
   const byDate = {};
   (window.STRIDE_BLOCKS || []).forEach((b) => (b.sessions || []).forEach((s) => {
@@ -2103,7 +2119,7 @@ function PlanMonthView({ go, persona }) {
           const skipped = !!s && s.status === 'skipped';
           const planned = !!s && !done && !skipped && s.kind !== 'Rest';
           return (
-            <div key={i} onClick={s ? () => setOpenSession(s) : undefined} style={{
+            <div key={i} onClick={s ? () => onOpen(s) : undefined} style={{
               aspectRatio: '1 / 1.05',
               background: isToday ? TT.ink : (done ? TT.accent : (skipped ? TT.lineSoft : TT.surface)),
               border: planned && !isToday ? `1px dashed ${TT.line}` : (done || isToday ? 'none' : `1px solid ${TT.lineSoft}`),
@@ -2145,12 +2161,6 @@ function PlanMonthView({ go, persona }) {
         )}
       </div>
       </div>
-
-      {openSession && (
-        <Sheet title={openSession.title} onClose={() => setOpenSession(null)}>
-          <SessionDetail session={openSession} go={go} persona={persona} onClose={() => setOpenSession(null)}/>
-        </Sheet>
-      )}
     </div>
   );
 }
@@ -2255,6 +2265,7 @@ function BlockRow({ block: b, onOpen, past }) {
 function BlockDetailScreen({ go, persona }) {
   const [openSession, setOpenSession] = React.useState(null);
   const [chatOpen, setChatOpen] = React.useState(false);
+  const wide = useStrideWide();
   const trainer = (persona && persona.name) || 'Coach';
   // Derive from live globals each render so applied coach edits show immediately.
   const block = (window.STRIDE_BLOCKS || []).find((x) => x.rawId != null && x.rawId === window.__strideOpenBlockId);
@@ -2263,27 +2274,31 @@ function BlockDetailScreen({ go, persona }) {
   if (!block) return null;
 
   const kicker = `${block.phase || ''}${block.weekOf ? ' · ' + window.t('Week {w} of {total}', { w: block.weekOf, total: block.weeks }) : ''}`;
+  const chatTitle = window.t('Edit this block with {name}', { name: trainer });
+  // Desktop: the coach chat fills the side panel until a session is opened there.
+  const sideChat = wide && !openSession;
 
   return (
-    <Screen padded={false} style={{ display: 'flex', flexDirection: 'column' }}>
-      <StrideHeader title={block.name} kicker={kicker} back onBack={() => go('plan')}
-        right={<IconBtn icon="chat" onClick={() => setChatOpen(true)}/>}/>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 100px' }}>
-        <BlockDetailBody block={block} trainer={trainer}
-          onOpenSession={setOpenSession} onEditCoach={() => setChatOpen(true)}/>
-      </div>
+    <StrideSplit title={sideChat ? trainer : openSession && openSession.title}
+      onClose={sideChat ? null : () => setOpenSession(null)}
+      detail={sideChat ? <BlockCoachChat block={block} trainer={trainer}/>
+        : openSession && <SessionDetail key={openSession.id} session={openSession} go={go} persona={persona} onClose={() => setOpenSession(null)}/>}
+      list={(
+        <Screen padded={false} style={{ display: 'flex', flexDirection: 'column' }}>
+          <StrideHeader title={block.name} kicker={kicker} back onBack={() => go('plan')}
+            right={!wide && <IconBtn icon="chat" onClick={() => setChatOpen(true)}/>}/>
+          <div style={{ flex: 1, overflowY: 'auto', padding: wide ? '4px 20px 40px' : '4px 20px 100px' }}>
+            <BlockDetailBody block={block} trainer={trainer}
+              onOpenSession={setOpenSession} onEditCoach={() => wide ? setOpenSession(null) : setChatOpen(true)}/>
+          </div>
 
-      {openSession && (
-        <Sheet title={openSession.title} onClose={() => setOpenSession(null)}>
-          <SessionDetail session={openSession} go={go} persona={persona} onClose={() => setOpenSession(null)}/>
-        </Sheet>
-      )}
-      {chatOpen && (
-        <Sheet title={window.t('Edit this block with {name}', { name: trainer })} onClose={() => setChatOpen(false)}>
-          <BlockCoachChat block={block} trainer={trainer}/>
-        </Sheet>
-      )}
-    </Screen>
+          {chatOpen && !wide && (
+            <Sheet title={chatTitle} onClose={() => setChatOpen(false)}>
+              <BlockCoachChat block={block} trainer={trainer}/>
+            </Sheet>
+          )}
+        </Screen>
+      )}/>
   );
 }
 
@@ -2734,6 +2749,14 @@ function NativeNotificationsBody() {
 function Sheet({ title, children, onClose }) {
   const overlayRef = React.useRef(null);
   const panelRef = React.useRef(null);
+  // On desktop the sheet is a centred dialog that Escape closes.
+  const wide = useStrideWide();
+  React.useEffect(() => {
+    if (!wide) return undefined;
+    const esc = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', esc);
+    return () => window.removeEventListener('keydown', esc);
+  }, [wide, onClose]);
   // Scroll containment: the page behind must NOT scroll while the sheet is open.
   // Touches on the dark backdrop, or overscroll past the panel's own bounds, would
   // otherwise chain through to the screen underneath (looks like the sheet floats
@@ -2754,18 +2777,19 @@ function Sheet({ title, children, onClose }) {
     <div ref={overlayRef} style={{
       position: window.STRIDE_NATIVE ? 'fixed' : 'absolute', inset: 0, zIndex: 50,
       background: 'rgba(10,10,10,0.45)',
-      display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+      display: 'flex', flexDirection: 'column', justifyContent: wide ? 'center' : 'flex-end', alignItems: wide ? 'center' : 'stretch',
       touchAction: 'none', // no scroll gestures on the backdrop
     }} onClick={onClose}>
-      <div ref={panelRef} onClick={e => e.stopPropagation()} style={{
+      <div ref={panelRef} role={wide ? 'dialog' : undefined} aria-label={wide ? title : undefined} onClick={e => e.stopPropagation()} style={{
         background: TT.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28,
+        ...(wide ? { width: 'min(520px, calc(100% - 48px))', boxSizing: 'border-box', borderRadius: 24, boxShadow: '0 24px 60px rgba(0,0,0,0.25)' } : {}),
         // Scroll INSIDE the sheet so its background always covers the content, and
         // clear the home-indicator with the real safe-area inset on native.
-        padding: window.STRIDE_NATIVE ? '14px 22px calc(28px + env(safe-area-inset-bottom))' : '14px 22px 32px',
+        padding: wide ? '18px 24px 24px' : window.STRIDE_NATIVE ? '14px 22px calc(28px + env(safe-area-inset-bottom))' : '14px 22px 32px',
         maxHeight: '85%', overflowY: 'auto', WebkitOverflowScrolling: 'touch',
         overscrollBehavior: 'contain', touchAction: 'pan-y', // scroll stays inside the panel
       }}>
-        <div style={{ width: 38, height: 4, borderRadius: 4, background: TT.line, margin: '0 auto 12px' }}/>
+        {!wide && <div style={{ width: 38, height: 4, borderRadius: 4, background: TT.line, margin: '0 auto 12px' }}/>}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <h3 style={{ margin: 0, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 18 }}>{title}</h3>
           <IconBtn icon="close" size={32} onClick={onClose}/>
@@ -2781,6 +2805,8 @@ function Sheet({ title, children, onClose }) {
 // ────────────────────────────────────────────────────────────────────
 function ProfileScreen({ go, persona, setPersona }) {
   const u = window.STRIDE_USER;
+  // Desktop: profile, coach and tracking on the left; display and app settings on the right.
+  const wide = useStrideWide();
   const personas = window.STRIDE_AI_PERSONAS;
   const prefs = window.useStridePrefs();
   const [spots] = window.useStrideSpots();
@@ -2829,6 +2855,8 @@ function ProfileScreen({ go, persona, setPersona }) {
     <Screen>
       <StrideHeader title="You" right={<div style={{ display: 'flex', gap: 8 }}><IconBtn icon="edit"/><IconBtn icon="settings" onClick={() => {}}/></div>}/>
       <div style={{ padding: '0 20px' }}>
+        <div style={wide ? { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 28, alignItems: 'start' } : undefined}>
+        <div>
         <Card>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 64, height: 64, borderRadius: 32, background: `linear-gradient(135deg, ${TT.accent}, #FFA88A)`, display: 'grid', placeItems: 'center', color: '#fff', fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 26 }}>{u.name[0]}</div>
@@ -2879,7 +2907,9 @@ function ProfileScreen({ go, persona, setPersona }) {
             <Row icon="trend" label="Personal records" sub={prs.length ? window.t('{n} logged', { n: prs.length }) : window.t('Log your current bests')} onClick={() => setPrsOpen(true)}/>
             <Row icon="edit" label="Personal notes" sub={notesPreview} onClick={() => setNotesOpen(true)}/>
           </div>
-          <div style={{ height: 14 }}/>
+        </div>
+        </div>
+        <div style={{ marginTop: wide ? 0 : 14 }}>
           <SectionHeader title="Display"/>
           <div style={{ marginTop: 10, background: TT.surface, border: `1px solid ${TT.line}`, borderRadius: 18, overflow: 'hidden' }}>
             <ToggleRow icon="bolt" label="Show RPE" sub="Rate of perceived exertion on sessions"
@@ -2941,6 +2971,7 @@ function ProfileScreen({ go, persona, setPersona }) {
             }}>
             {window.t('Reset app (test)')}
           </button>
+        </div>
         </div>
 
         <div style={{ height: 24 }}/>

@@ -127,6 +127,7 @@
     var path = new URL(url, location.href).pathname;
     var queueable = (method === 'PATCH' && /\/sessions\/\d+\/sets\/\d+$/.test(path)) ||
       (method === 'POST' && /\/sessions\/\d+\/(start|complete)$/.test(path)) ||
+      (method === 'POST' && /\/routines\/\d+\/runs$/.test(path)) ||
       (method === 'POST' && path.endsWith('/weight') && JSON.parse(options.body || '{}').recorded_on);
     if (active && queueable) {
       var id = await store('outbox', 'readwrite', function (s) { return s.add({

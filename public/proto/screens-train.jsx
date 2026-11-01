@@ -1708,6 +1708,8 @@ function StrideChatModelBar() {
 }
 
 function ChatScreen({ go, persona }) {
+  // Desktop has no bottom nav to clear, and the sidebar replaces the Back link.
+  const wide = useStrideWide();
   const [messages, setMessages] = React.useState(window.STRIDE_CHAT_SEED);
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const [changesOpen, setChangesOpen] = React.useState(false);   // "what I changed"
@@ -1755,22 +1757,27 @@ function ChatScreen({ go, persona }) {
   const matchCount = q ? filtered.length : 0;
 
   // Fire (or re-fire) the coach call for one user message, keyed by its id so a
-  // failure can be pinned to — and retried from — that exact bubble.
-  const msgSeq = React.useRef(0);
+  // failure can be pinned to — and retried from — that exact bubble. The id goes
+  // to the server too, so a retry of a message it already saved is not saved twice.
   const attempt = (t, id) => {
     setTyping(true);
+    // The answer goes right under its message, even when a retry comes later.
+    const answer = (reply) => setMessages(m => {
+      const i = m.findIndex(x => x.id === id);
+      const list = m.map(x => x.id === id ? { ...x, failed: false } : x);
+      if (i < 0) return [...list, reply];
+      return [...list.slice(0, i + 1), reply, ...list.slice(i + 1)];
+    });
     // Live coach (real API) when bridged; otherwise fall back to the canned demo reply.
     if (window.__strideCoach) {
-      window.__strideCoach.send(t)
-        .then(reply => {
+      window.__strideCoach.send(t, id)
+        .then(reply => { setTyping(false); answer(reply); })
+        .catch((e) => {
           setTyping(false);
-          setMessages(m => [...m.map(x => x.id === id ? { ...x, failed: false } : x), reply]);
-        })
-        .catch(() => {
-          // No stand-alone error bubble: mark the user's message failed so a
-          // Retry button appears right under it (Part 1 removes the server-side
-          // "couldn't complete" case; this handles genuine network/API failures).
-          setTyping(false);
+          // A 4xx (daily limit, model not available) fails the same way again:
+          // show the server's reason instead of a Retry button. A 409 means the
+          // server is still answering this message, so Retry stays.
+          if (e && e.status >= 400 && e.status < 500 && e.status !== 409) { answer({ who: 'ai', text: e.message }); return; }
           setMessages(m => m.map(x => x.id === id ? { ...x, failed: true } : x));
         });
       return;
@@ -1784,7 +1791,7 @@ function ChatScreen({ go, persona }) {
   const send = (text) => {
     const t = (text || input).trim();
     if (!t) return;
-    const id = 'u' + (++msgSeq.current);
+    const id = `u-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     setMessages(m => [...m, { who: 'me', text: t, id }]);
     setInput('');
     attempt(t, id);
@@ -1808,7 +1815,7 @@ function ChatScreen({ go, persona }) {
 
   return (
     <Screen padded={false} style={{ paddingBottom: 0, display: 'flex', flexDirection: 'column' }}>
-      <StrideHeader title={persona.name} back onBack={() => go('home')} right={
+      <StrideHeader title={persona.name} back={!wide} onBack={() => go('home')} right={
         <>
           <IconBtn icon="sparkles" onClick={() => setChangesOpen(true)}/>
           <IconBtn icon="search" onClick={() => setSearching(s => !s)}
@@ -1847,7 +1854,7 @@ function ChatScreen({ go, persona }) {
         </div>
       )}
 
-      <div ref={scrollRef} onScroll={onChatScroll} style={{ flex: 1, overflowY: 'auto', padding: '0 20px 176px' }}>
+      <div ref={scrollRef} onScroll={onChatScroll} style={{ flex: 1, overflowY: 'auto', padding: wide ? '0 20px 100px' : '0 20px 176px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filtered.map((m, i) => <ChatBubble key={i} m={m} onCard={openCard} onRetry={retry} highlight={q}/>)}
           {typing && !q && <ChatBubble m={{ who: 'ai', text: '…', typing: true }}/>}
@@ -1883,7 +1890,7 @@ function ChatScreen({ go, persona }) {
       {/* Scroll to latest — shown only when scrolled up from the bottom */}
       {showDown && !searching && (
         <button onClick={() => scrollToBottom(true)} aria-label={window.t('Scroll to latest')} style={{
-          position: 'absolute', right: 18, bottom: 162, zIndex: 30,
+          position: 'absolute', right: 18, bottom: wide ? 98 : 162, zIndex: 30,
           width: 40, height: 40, borderRadius: 999, cursor: 'pointer', border: `1px solid ${TX.line}`,
           background: TX.ink, display: 'grid', placeItems: 'center', boxShadow: '0 6px 18px rgba(0,0,0,0.28)',
         }}>
@@ -1893,8 +1900,8 @@ function ChatScreen({ go, persona }) {
 
       {/* Composer */}
       <div style={{
-        position: 'absolute', left: 0, right: 0, bottom: 84,
-        background: TX.bg, padding: '10px 20px 12px',
+        position: 'absolute', left: 0, right: 0, bottom: wide ? 0 : 84,
+        background: TX.bg, padding: wide ? '10px 20px 20px' : '10px 20px 12px',
         borderTop: `1px solid ${TX.lineSoft}`,
       }}>
         <div style={{

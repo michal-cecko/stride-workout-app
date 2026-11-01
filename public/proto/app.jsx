@@ -71,10 +71,11 @@ function StrideApp({ frame }) {
   // Map "profile" tab to actual profile-stack root
   const activeTab = ['home','plan','library','workouts','profile'].includes(screen) ? screen
     : screen === 'block-detail' ? 'plan'
+    : screen === 'routines' ? 'workouts'
     : screen === 'weight' || screen === 'goals' || screen === 'injuries' || screen === 'injury-detail' || screen === 'ai-coach' || screen === 'ai-connect' || screen === 'spots' ? 'profile'
     : null;
 
-  const showBottomNav = ['home','plan','library','workouts','chat','profile','weight','goals','injuries','injury-detail','ai-coach','ai-connect','spots','block-detail'].includes(screen);
+  const showBottomNav = ['home','plan','library','workouts','chat','profile','weight','goals','injuries','injury-detail','ai-coach','ai-connect','spots','block-detail','routines'].includes(screen);
 
   let content = null;
   switch (screen) {
@@ -97,11 +98,15 @@ function StrideApp({ frame }) {
     case 'active-config': content = <ActiveConfigScreen go={go}/>; break;
     case 'active':    content = <ActiveWorkoutScreen go={go} auto={auto} setAuto={setAuto}/>; break;
     case 'summary':   content = <SummaryScreen go={go}/>; break;
+    case 'routines':  content = <RoutinesScreen go={go}/>; break;
+    case 'routine-edit': content = <RoutineEditScreen go={go}/>; break;
+    case 'routine-run': content = <RoutineRunScreen go={go}/>; break;
     default:          content = <HomeScreen go={go} persona={persona}/>;
   }
 
   // Status bar darkness depends on screen
-  const darkStatus = screen === 'active';
+  const darkStatus = screen === 'active' || screen === 'routine-run';
+  const wide = useStrideWide();
 
   // Inner app tree — shared by the native full-bleed path and the browser
   // device-frame path.
@@ -117,6 +122,29 @@ function StrideApp({ frame }) {
   // Native (Capacitor): fill the real screen, no simulated device frame. The
   // phone supplies the status bar / home indicator; safe-area insets (applied
   // inside Screen / StrideBottomNav) clear the notch and home-indicator areas.
+  if (wide) {
+    // Desktop: a sidebar replaces the bottom nav, except on focus screens (a live
+    // workout, onboarding). Other screens sit in a centred column. Its transform
+    // makes position:fixed sheets and overlays fill the column, not the window.
+    // The routine screens become one studio (editor, timer and interval list).
+    const studio = ['routines', 'routine-edit', 'routine-run'].includes(screen);
+    const focus = ['onboarding', 'generate', 'active-config', 'active', 'summary'].includes(screen);
+    const sideTab = screen === 'chat' ? 'chat' : studio ? 'routines' : activeTab;
+    // List screens with a detail panel take the full width; Today and You have two columns.
+    const split = ['workouts', 'library', 'plan', 'block-detail'].includes(screen);
+    const column = studio ? 'none' : split ? 1480 : focus ? 560 : ['home', 'profile'].includes(screen) ? 1120 : 760;
+    return (
+      <div style={{ position: 'fixed', inset: 0, display: 'flex', background: darkStatus ? '#000' : window.STRIDE_THEME.bg, overflow: 'hidden' }}>
+        {!focus && <StrideSideNav tab={sideTab} onTab={go} compact={studio}/>}
+        <div style={{ flex: 1, minWidth: 0, height: '100%', overflow: 'hidden' }}>
+          <div style={{ maxWidth: column, height: '100%', margin: '0 auto', position: 'relative', transform: 'translateZ(0)', background: window.STRIDE_THEME.bg }}>
+            {studio ? <RoutineStudio screen={screen}/> : content}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (window.STRIDE_NATIVE) {
     return (
       <div style={{ position: 'fixed', inset: 0, background: window.STRIDE_THEME.bg, overflow: 'hidden' }}>
