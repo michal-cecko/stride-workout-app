@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <defs>
+    <symbol id="stride-mark" viewBox="0 0 100 100">
+      <g transform="skewX(-24)">
+        <rect x="30" y="22" width="52" height="15" rx="7.5"/>
+        <rect x="16" y="42" width="52" height="15" rx="7.5"/>
+        <rect x="30" y="62" width="52" height="15" rx="7.5"/>
+      </g>
+    </symbol>
+  </defs>
+  <rect width="180" height="180" rx="40" fill="#151310"/>
+  <use href="#stride-mark" x="39.85" y="18.7" width="144" height="144" fill="#D8FF3A"/>
+</svg>

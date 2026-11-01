@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Stride — workout app</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#f4f1ea" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Stride" />
 
   <!-- Self-hosted fonts (Archivo / Inter / JetBrains Mono, latin + latin-ext for
        EN+SK) so the app renders offline with no CDN round-trips. -->
@@ -31,6 +37,9 @@
     @keyframes bob { 0%,100% { transform: translateY(0); opacity: .4; } 50% { transform: translateY(-3px); opacity: 1; } }
     @keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
     @keyframes facePop { 0% { transform: scale(.9); } 60% { transform: scale(1.04); } 100% { transform: scale(1); } }
+    /* Plan week/month pager: incoming page slides in from the swipe side */
+    @keyframes stridePageNext { from { transform: translateX(36px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes stridePagePrev { from { transform: translateX(-36px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
     ::-webkit-scrollbar { width: 0; height: 0; }
 
     /* Login gate (shown before the prototype boots) */
@@ -55,10 +64,60 @@
     }
     #stride-login .lg-btn:disabled { opacity: .6; cursor: default; }
     #stride-login .lg-hint { text-align: center; font-size: 12px; color: #8a8478; margin-top: 16px; }
+
+    /* Boot splash — painted on the FIRST webview frame (before Face ID / data
+       load), so there is never a black screen during auth. Composition matches
+       the native launch image + app icon exactly; bridge.js fades it out once the
+       app has rendered (or removes it when the login gate shows). */
+    #stride-boot {
+      position: fixed; inset: 0; z-index: 900; background: #F5F1E6;
+      display: grid; place-items: center; overflow: hidden;
+      transition: opacity .42s ease, transform .42s ease;
+    }
+    #stride-boot.sb-hide { opacity: 0; transform: scale(1.04); pointer-events: none; }
+    .sb-glow { position: absolute; top: -16%; right: -20%; width: 66%; aspect-ratio: 1; border-radius: 50%; background: #D8FF3A; filter: blur(70px); opacity: .28; }
+    .sb-texture { position: absolute; inset: 0; background-image: repeating-linear-gradient(114deg, rgba(21,19,16,.05) 0 2px, transparent 2px 22px); }
+    .sb-center { position: relative; display: flex; flex-direction: column; align-items: center; gap: 24px; }
+    .sb-icon { border-radius: 29px; box-shadow: 0 14px 40px rgba(21,19,16,.18); animation: spRise .7s cubic-bezier(.2,.9,.25,1) both; }
+    .sb-stride { animation: spStride .62s cubic-bezier(.2,.9,.25,1) both; }
+    .sb-stride.s1 { animation-delay: .18s; } .sb-stride.s2 { animation-delay: .24s; } .sb-stride.s3 { animation-delay: .30s; }
+    .sb-text { text-align: center; }
+    .sb-word { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-size: 52px; letter-spacing: -2px; line-height: 1; color: #151310; animation: spRise .7s .34s cubic-bezier(.2,.9,.25,1) both; }
+    .sb-tag { font-family: 'Inter', sans-serif; font-weight: 700; font-size: 11px; letter-spacing: 2.4px; text-transform: uppercase; color: #8a857a; margin-top: 11px; animation: spRise .7s .46s cubic-bezier(.2,.9,.25,1) both; }
+    .sb-dashes { position: absolute; left: 0; right: 0; bottom: 74px; display: flex; gap: 6px; justify-content: center; transform: skewX(-24deg); animation: spRise .6s .6s ease both; }
+    .sb-dashes i { width: 22px; height: 5px; border-radius: 3px; background: #151310; animation: spPulse 1.1s ease-in-out infinite; }
+    .sb-dashes i:nth-child(2) { animation-delay: .14s; } .sb-dashes i:nth-child(3) { animation-delay: .28s; }
+    @keyframes spStride { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+    @keyframes spRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    @keyframes spPulse { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
   </style>
 </head>
 <body>
   <div id="root"></div>
+
+  <!-- Boot splash: visible from the first paint (covers Face ID + data load).
+       bridge.js fades/removes it via hideBoot(). -->
+  <div id="stride-boot" aria-hidden="true">
+    <div class="sb-glow"></div>
+    <div class="sb-texture"></div>
+    <div class="sb-center">
+      <svg class="sb-icon" width="132" height="132" viewBox="0 0 180 180">
+        <rect width="180" height="180" rx="40" fill="#151310"/>
+        <g transform="translate(39.85 18.7) scale(1.44)">
+          <g transform="skewX(-24)">
+            <rect class="sb-stride s1" x="30" y="22" width="52" height="15" rx="7.5" fill="#D8FF3A"/>
+            <rect class="sb-stride s2" x="16" y="42" width="52" height="15" rx="7.5" fill="#D8FF3A"/>
+            <rect class="sb-stride s3" x="30" y="62" width="52" height="15" rx="7.5" fill="#D8FF3A"/>
+          </g>
+        </g>
+      </svg>
+      <div class="sb-text">
+        <div class="sb-word">STRIDE</div>
+        <div class="sb-tag">Train with intent</div>
+      </div>
+    </div>
+    <div class="sb-dashes"><i></i><i></i><i></i></div>
+  </div>
 
   <!-- Self-hosted React 18.3.1 UMD (window.React / window.ReactDOM) — the runtime
        the prototype was authored against. No runtime JSX compiler: the JSX is
@@ -66,23 +125,18 @@
   <script src="/vendor/react.production.min.js"></script>
   <script src="/vendor/react-dom.production.min.js"></script>
 
-  <!-- Native (Capacitor) detection. On device we (1) can't reach localhost, so we
-       point at the deployed Stride API, and (2) drop the prototype's simulated
-       device frame — the real phone supplies the status bar / safe areas. The
-       browser/editor prototype leaves STRIDE_NATIVE unset and keeps the frame. -->
   <script>
     var strideIsCapacitor = location.protocol === 'capacitor:' || location.protocol === 'ionic:' ||
       (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-    // ?native=1 previews the native (frameless) layout in a browser against the
-    // local API — for testing exactly what the device renders.
-    if (strideIsCapacitor || /[?&]native=1/.test(location.search)) {
-      window.STRIDE_NATIVE = true;
-    }
-    if (strideIsCapacitor) {
+    window.STRIDE_NATIVE = !/[?&]frame=1/.test(location.search);
+    window.STRIDE_API_BASE = '/api/stride';
+    if (strideIsCapacitor || /[?&]api=live/.test(location.search)) {
       window.STRIDE_API_BASE = 'https://dashboard.cecko.dev/api/stride';
     }
   </script>
 
+  <script src="/offline.js"></script>
+  <script src="/pwa.js"></script>
   <!-- Boots the prototype 1:1 with live API data + login gate -->
   <script src="/bridge.js"></script>
 </body>

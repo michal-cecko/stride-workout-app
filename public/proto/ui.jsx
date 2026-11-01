@@ -40,6 +40,8 @@ function StrideIcon({ name, size = 22, color = 'currentColor', strokeWidth = 2, 
     skipBack: <><path {...f} d="M19 5v14L9 12l10-7Z"/><rect {...f} x="5" y="5" width="3" height="14" rx="1"/></>,
     flame: <><path {...p} d="M12 21c4 0 7-2.7 7-7 0-3-2-5-3-7-1 2-2 3-4 3-1-3 1-5 1-8-4 1-7 5-7 10 0 5 3 9 6 9Z"/></>,
     trend: <><path {...p} d="M3 17l6-6 4 4 8-8"/><path {...p} d="M14 7h7v7"/></>,
+    // Flexed arm — the Workouts tab (what you actually trained).
+    muscle: <><path {...p} d="M12.4 13a5 5 0 0 1 9.6 2c0 3.9-4 7-9 7-4.1 0-8.2-.8-10.4-2.5-.4-.3-.6-.8-.6-1.4C2.1 12.7 2.6 2 10 2a3 3 0 0 1 3 3 2 2 0 0 1-2 2c-1.1 0-1.6-.4-2-1"/><path {...p} d="M15 14a5 5 0 0 0-7.6 2"/><path {...p} d="M10 6.8C8 8 9.5 13 8 15"/></>,
     dumbbell: <><rect {...p} x="2" y="9" width="3" height="6" rx="1"/><rect {...p} x="19" y="9" width="3" height="6" rx="1"/><rect {...p} x="5" y="7" width="3" height="10" rx="1"/><rect {...p} x="16" y="7" width="3" height="10" rx="1"/><path {...p} d="M8 12h8"/></>,
     folder: <><path {...p} d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></>,
     filter: <><path {...p} d="M3 5h18M6 12h12M10 19h4"/></>,
@@ -51,6 +53,7 @@ function StrideIcon({ name, size = 22, color = 'currentColor', strokeWidth = 2, 
     more: <><circle {...f} cx="5" cy="12" r="1.7"/><circle {...f} cx="12" cy="12" r="1.7"/><circle {...f} cx="19" cy="12" r="1.7"/></>,
     info: <><circle {...p} cx="12" cy="12" r="9"/><path {...p} d="M12 11v6"/><circle {...f} cx="12" cy="7.5" r="1"/></>,
     sliders: <><path {...p} d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle {...p} cx="16" cy="7" r="2"/><circle {...p} cx="8" cy="17" r="2"/></>,
+    history: <><path {...p} d="M3.5 12a8.5 8.5 0 1 0 2.5-6L3.5 8.5"/><path {...p} d="M3.5 4v4.5H8"/><path {...p} d="M12 8v4.5l3 2"/></>,
     heart: <><path {...p} d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z"/></>,
     leaf: <><path {...p} d="M5 19c0-8 6-14 14-14 0 8-6 14-14 14ZM5 19l8-8"/></>,
     eye: <><path {...p} d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle {...p} cx="12" cy="12" r="3"/></>,
@@ -172,7 +175,7 @@ function StrideBottomNav({ tab, onTab, onMore }) {
     { id: 'home',     icon: 'home',   label: 'Today'   },
     { id: 'plan',     icon: 'cal',    label: 'Plan'    },
     { id: 'library',  icon: 'book',   label: 'Library' },
-    { id: 'chat',     icon: 'chat',   label: 'AI'      },
+    { id: 'workouts', icon: 'muscle', label: 'Workouts' },
     { id: 'profile',  icon: 'user',   label: 'You'     },
   ];
   return (
@@ -206,6 +209,90 @@ function StrideBottomNav({ tab, onTab, onMore }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ── Desktop (web on a wide screen) ────────────────────────────
+// Wide = the full-bleed web/native build on a screen of 1024 px or more. The
+// device-frame preview (?frame=1) always stays a phone.
+const STRIDE_WIDE_QUERY = '(min-width: 1024px)';
+function useStrideWide() {
+  const query = () => !!window.STRIDE_NATIVE && window.matchMedia(STRIDE_WIDE_QUERY).matches;
+  const [wide, setWide] = React.useState(query);
+  React.useEffect(() => {
+    const mq = window.matchMedia(STRIDE_WIDE_QUERY);
+    const on = () => setWide(query());
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return wide;
+}
+
+// Left sidebar that replaces the bottom nav on desktop. `compact` is an icon rail
+// for screens that need the width (the routine studio).
+function StrideSideNav({ tab, onTab, compact }) {
+  const items = [
+    { id: 'home',     icon: 'home',   label: 'Today' },
+    { id: 'plan',     icon: 'cal',    label: 'Plan' },
+    { id: 'library',  icon: 'book',   label: 'Library' },
+    { id: 'workouts', icon: 'muscle', label: 'Workouts' },
+    { id: 'routines', icon: 'timer',  label: 'Routines' },
+    { id: 'chat',     icon: 'chat',   label: 'Coach' },
+    { id: 'profile',  icon: 'user',   label: 'You' },
+  ];
+  return (
+    <nav style={{
+      width: compact ? 72 : 232, flexShrink: 0, height: '100%', boxSizing: 'border-box', background: T.surface,
+      borderRight: `1px solid ${T.line}`, padding: compact ? '24px 10px' : '24px 14px', display: 'flex', flexDirection: 'column', gap: 4,
+    }}>
+      <div style={{ fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 24, letterSpacing: -0.5, padding: compact ? '0 0 22px' : '0 12px 22px', textAlign: compact ? 'center' : 'left', color: T.ink }}>
+        {compact ? 'S' : 'STRIDE'}<span style={{ color: T.accent }}>.</span>
+      </div>
+      {items.map((it) => {
+        const active = tab === it.id;
+        return (
+          <button key={it.id} onClick={() => onTab(it.id)} aria-current={active ? 'page' : undefined}
+            aria-label={compact ? it.label : undefined} title={compact ? it.label : undefined} style={{
+            border: 'none', borderRadius: 12, padding: compact ? '12px 0' : '11px 12px', cursor: 'pointer', textAlign: 'left',
+            display: 'flex', alignItems: 'center', justifyContent: compact ? 'center' : 'flex-start', gap: 12,
+            background: active ? T.ink : 'transparent', color: active ? '#fff' : T.ink2,
+            fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: active ? 800 : 600,
+          }}>
+            <StrideIcon name={it.icon} size={20} strokeWidth={active ? 2.4 : 1.8} color={active ? T.volt : T.ink3}/>
+            {!compact && it.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+// List with a detail. On a phone the detail opens in a sheet. On desktop it sits
+// in a panel right of the list, so another row can be picked while it is open.
+// Give `detail` a key so its state resets when the row changes.
+function StrideSplit({ list, detail, title, onClose, empty }) {
+  const wide = useStrideWide();
+  if (!wide) return <>{list}{detail && <Sheet title={title} onClose={onClose}>{detail}</Sheet>}</>;
+  return (
+    <div style={{ display: 'flex', height: '100%' }}>
+      <div style={{ flex: 1, minWidth: 0, height: '100%' }}>{list}</div>
+      <aside aria-label={detail ? title : undefined} style={{
+        width: 'clamp(380px, 36%, 480px)', flexShrink: 0, height: '100%', boxSizing: 'border-box',
+        overflowY: 'auto', background: T.surface, borderLeft: `1px solid ${T.line}`, padding: '28px 24px 40px',
+      }}>
+        {detail ? (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <h3 style={{ margin: 0, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 20, color: T.ink }}>{title}</h3>
+              {onClose && <IconBtn icon="close" size={32} onClick={onClose}/>}
+            </div>
+            {detail}
+          </>
+        ) : (
+          <div style={{ height: '100%', display: 'grid', placeItems: 'center', textAlign: 'center', fontFamily: 'Inter', fontSize: 13.5, color: T.ink3, padding: '0 24px' }}>{empty}</div>
+        )}
+      </aside>
     </div>
   );
 }
@@ -263,7 +350,7 @@ function Chip({ children, color = T.ink, bg = T.lineSoft, ink = T.ink, dot, styl
 }
 
 // ── Action button ─────────────────────────────────────────────
-function StrideButton({ children, onClick, variant = 'primary', size = 'md', icon, iconRight, block, style }) {
+function StrideButton({ children, onClick, variant = 'primary', size = 'md', icon, iconRight, block, style, disabled = false }) {
   const sizes = {
     sm: { padding: '8px 14px', font: 13, h: 36 },
     md: { padding: '14px 20px', font: 15, h: 52 },
@@ -278,13 +365,13 @@ function StrideButton({ children, onClick, variant = 'primary', size = 'md', ico
   };
   const sz = sizes[size];
   return (
-    <button onClick={onClick} style={{
+    <button onClick={onClick} disabled={disabled} style={{
       ...variants[variant], ...sz,
       width: block ? '100%' : 'auto',
       borderRadius: 14,
       fontFamily: 'Archivo, sans-serif', fontWeight: 800,
       fontSize: sz.font, letterSpacing: 0.3,
-      textTransform: 'uppercase', cursor: 'pointer',
+      textTransform: 'uppercase', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1,
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
       ...style,
     }}>
@@ -331,15 +418,18 @@ window.STRIDE_SAFE_TOP = window.STRIDE_SAFE_TOP || 56;
 
 // ── Screen container ──────────────────────────────────────────
 function Screen({ children, padded = true, style }) {
+  // Desktop has no bottom nav or notch, so it needs less room at the bottom and
+  // a bit more at the top.
+  const wide = useStrideWide();
   return (
     <div style={{
       background: T.bg,
       width: '100%', height: '100%',
       overflowY: 'auto', overflowX: 'hidden',
       position: 'relative',
-      paddingTop: window.STRIDE_SAFE_TOP,
+      paddingTop: wide ? 28 : window.STRIDE_SAFE_TOP,
       // Room for the bottom nav; native adds the home-indicator inset on top.
-      paddingBottom: window.STRIDE_NATIVE ? 'calc(100px + env(safe-area-inset-bottom))' : 100,
+      paddingBottom: wide ? 40 : window.STRIDE_NATIVE ? 'calc(100px + env(safe-area-inset-bottom))' : 100,
       ...(padded ? {} : {}),
       ...style,
     }}>
@@ -680,6 +770,78 @@ function strideFormatPr(pr) {
   }
 }
 
+// ── In-workout PR detection ───────────────────────────────────
+// Resolve an active-workout exercise to its numeric library (catalogue) id.
+// Live sessions carry a clean `exerciseId`; ids are also prefixed `ex-<id>`.
+// Mock/free-text ids (e.g. 'ex-bench') have no catalogue link → null (no-op).
+function strideExFk(ex) {
+  if (!ex) return null;
+  if (typeof ex.exerciseId === 'number') return ex.exerciseId;
+  const raw = ex.exerciseId != null ? ex.exerciseId : ex.id;
+  const m = String(raw).match(/^ex-(\d+)$/);
+  return m ? Number(m[1]) : null;
+}
+
+// A single comparable number for a PR's metrics, per metric type. Higher = better.
+// load → estimated 1RM (Epley); reps → count; hold → seconds. Others untracked.
+function stridePrScore(metricType, metrics) {
+  const m = metrics || {};
+  if (metricType === 'load') return (m.weight != null && m.reps != null) ? m.weight * (1 + m.reps / 30) : null;
+  if (metricType === 'reps') return m.reps != null ? m.reps : null;
+  if (metricType === 'hold') return m.seconds != null ? m.seconds : null;
+  return null; // run / sprint / machine aren't captured by a logged set
+}
+
+// Decide whether a just-logged set is a personal record for its exercise.
+// `entry` is the active-workout set log {reps, kg, band}. Returns null (no PR) or
+// { exercise_id, metric_type, metrics, score, prevScore, isFirst, beats:{old,new} }.
+function strideDetectPr(ex, entry, existingPrs) {
+  // A warm-up CAN be a record — an easy top-set is still a top set. Only the
+  // numbers decide, exactly as for a working set.
+  const fk = strideExFk(ex);
+  if (fk == null) return null;                                   // mock / unlinked → skip
+  const mt = (ex && ex.metricType) || 'load';
+  if (mt === 'run' || mt === 'sprint' || mt === 'machine') return null;
+
+  const reps = entry && entry.reps != null ? Number(entry.reps) : null;
+  const kg = entry && entry.kg != null ? Number(entry.kg) : null;
+  const band = entry && entry.band != null ? Number(entry.band) : null;
+
+  let metrics, score;
+  if (mt === 'hold') {                                           // seconds live in the set's `reps` field
+    if (!reps || reps <= 0) return null;
+    metrics = { seconds: reps };
+    score = reps;
+  } else if (mt === 'reps') {
+    if (!reps || reps <= 0) return null;
+    metrics = { reps };
+    score = reps;
+  } else {                                                       // load
+    if (!kg || kg <= 0 || !reps || reps <= 0) return null;
+    metrics = { weight: kg, reps };
+    if (band != null && band > 0) metrics.band = band;           // stored, but excluded from 1RM
+    score = kg * (1 + reps / 30);                                // Epley est-1RM
+  }
+
+  const mine = (existingPrs || []).filter(p => p.exercise_id === fk && p.metric_type === mt);
+  let prevScore = null, prevPr = null;
+  mine.forEach(p => {
+    const s = stridePrScore(mt, p.metrics);
+    if (s != null && (prevScore == null || s > prevScore)) { prevScore = s; prevPr = p; }
+  });
+
+  const isFirst = prevScore == null;
+  if (!isFirst && score <= prevScore) return null;              // strict >; ties are not PRs
+
+  return {
+    exercise_id: fk, metric_type: mt, metrics, score, prevScore, isFirst,
+    beats: {
+      old: prevPr ? (prevPr.display || strideFormatPr(prevPr)) : null,
+      new: strideFormatPr({ metric_type: mt, metrics }),
+    },
+  };
+}
+
 // Form quality 1–5 — how clean the rep/hold actually was (a sloppy 1RM ≠ a textbook
 // one). Optional: tapping the active pip again clears it. Shared by every PR logger.
 const FORM_QUALITY_LABELS = ['Sloppy', 'Shaky', 'Clean', 'Strong', 'Textbook'];
@@ -724,27 +886,24 @@ function PrEditor({ initial, lockType, onSave, onCancel }) {
   const init = initial || {};
   const catalog = window.STRIDE_EXERCISES || [];
   const [picked, setPicked] = React.useState(null);          // a catalogue exercise {id,name,metricType}
-  const [custom, setCustom] = React.useState(!!init.label);  // manual entry (not in catalogue)
   const [query, setQuery] = React.useState('');
-  const [label, setLabel] = React.useState(init.label || '');
-  const [metricType, setMetricType] = React.useState(init.metric_type || 'load');
   const [metrics, setMetrics] = React.useState(init.metrics || {});
   const [date, setDate] = React.useState(init.achieved_on || new Date().toISOString().slice(0, 10));
   const [formQuality, setFormQuality] = React.useState(init.form_quality || null);
   const [saving, setSaving] = React.useState(false);
 
-  // A picked catalogue exercise wins; otherwise fall back to the manual fields.
-  const effLabel = picked ? picked.name : label.trim();
-  const effType = picked ? picked.metricType : metricType;
+  // Records must link to a catalogue exercise — the pick supplies label + type + id.
+  const effLabel = picked ? picked.name : '';
+  const effType = picked ? picked.metricType : 'load';
   const exerciseId = picked ? picked.id : null;
-  const ready = !!picked || custom; // we know the type → show value inputs
+  const ready = !!picked; // we know the type → show value inputs
 
   const q = query.trim().toLowerCase();
   const matches = q.length >= 1 ? catalog.filter(e => e.name.toLowerCase().includes(q)).slice(0, 8) : [];
   const pick = (e) => { setPicked(e); setMetrics({}); setQuery(''); };
 
   const hasValue = Object.keys(metrics).some(k => metrics[k] != null && metrics[k] !== '');
-  const canSave = effLabel && hasValue && !saving;
+  const canSave = !!picked && hasValue && !saving;
   const save = () => {
     if (!canSave) return;
     setSaving(true);
@@ -766,29 +925,6 @@ function PrEditor({ initial, lockType, onSave, onCancel }) {
             <button onClick={() => { setPicked(null); setMetrics({}); }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: T.accent, fontFamily: 'Inter', fontWeight: 700, fontSize: 12.5 }}>Change</button>
           </div>
         </PrField>
-      ) : custom ? (
-        <div>
-          <PrField label="Exercise / record">
-            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Weighted pull-up 1RM" style={fieldStyle} autoFocus/>
-          </PrField>
-          {!lockType && (
-            <div style={{ marginTop: 12 }}>
-              <PrField label="Type">
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {PR_METRIC_TYPES.map(t => (
-                    <button key={t.key} onClick={() => { setMetricType(t.key); setMetrics({}); }} style={{
-                      padding: '7px 12px', borderRadius: 999, cursor: 'pointer',
-                      border: `1.5px solid ${metricType === t.key ? T.ink : T.line}`,
-                      background: metricType === t.key ? T.ink : T.surface, color: metricType === t.key ? '#fff' : T.ink2,
-                      fontFamily: 'Inter', fontWeight: 700, fontSize: 12.5,
-                    }}>{t.label}</button>
-                  ))}
-                </div>
-              </PrField>
-            </div>
-          )}
-          {catalog.length > 0 && <button onClick={() => { setCustom(false); setLabel(''); }} style={linkStyle}>← Search the catalogue instead</button>}
-        </div>
       ) : (
         <PrField label="Exercise">
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search exercises…" style={fieldStyle} autoFocus/>
@@ -805,7 +941,7 @@ function PrEditor({ initial, lockType, onSave, onCancel }) {
               ))}
             </div>
           )}
-          <button onClick={() => { setCustom(true); setQuery(''); }} style={linkStyle}>Can't find it? Enter manually</button>
+          <div style={{ ...linkStyle, cursor: 'default' }}>{window.t('Only catalogue exercises can be recorded.')}</div>
         </PrField>
       )}
 
@@ -885,14 +1021,118 @@ function renderCoachMarkdown(text) {
   return out;
 }
 
+// Horizontal swipe pager: spread the returned handlers on a container to page
+// prev/next. Threshold 48px and dominantly horizontal (1.5× the vertical delta)
+// so it never fights vertical scrolling.
+function useSwipeNav(onPrev, onNext) {
+  const start = React.useRef(null);
+  return {
+    onTouchStart: (e) => {
+      const t = e.touches[0];
+      start.current = { x: t.clientX, y: t.clientY };
+    },
+    onTouchEnd: (e) => {
+      const s = start.current;
+      start.current = null;
+      if (!s || !e.changedTouches || !e.changedTouches.length) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - s.x, dy = t.clientY - s.y;
+      if (Math.abs(dx) < 48 || Math.abs(dx) < 1.5 * Math.abs(dy)) return;
+      if (dx < 0) onNext(); else onPrev();
+    },
+  };
+}
+
+
+// ── how much of a session actually got done ──────────────────────────────────
+// A session can be finished early, so "done" is a ratio, not a boolean. Counts
+// only working sets — nobody's effort should be judged by their warm-ups.
+function strideCompletion(workout, log) {
+  const exercises = (workout && workout.exercises) || [];
+  let planned = 0, done = 0;
+  exercises.forEach((ex) => {
+    if (ex.section === 'warmup') return;
+    (ex.sets || []).forEach((st, i) => {
+      if ((st.kind || '') === 'Warm-up') return;
+      planned++;
+      // `done` comes from the API; `log` is the in-memory record of this session.
+      if (st.done || (log && log[`${ex.id}-${i}`])) done++;
+    });
+  });
+  const ratio = planned ? done / planned : 0;
+  return {
+    planned, done, ratio,
+    // Tiers the copy keys off. 'full' keeps today's celebration; the rest stop
+    // congratulating a half session as if it were a whole one.
+    tier: ratio >= 0.9 ? 'full' : ratio >= 0.6 ? 'most' : ratio >= 0.3 ? 'half' : 'short',
+  };
+}
+
+// ── in-progress session ──────────────────────────────────────────────────────
+// The workout player mirrors its position + logged sets into localStorage on every
+// change, so quitting the app mid-session never loses work. Home reads the same
+// record to offer "Resume" instead of a fresh start.
+const STRIDE_PROGRESS_KEY = 'stride_active_progress';
+
+function strideActiveProgress(sessionId) {
+  try {
+    const s = JSON.parse(localStorage.getItem(STRIDE_PROGRESS_KEY) || 'null');
+    if (!s || s.sessionId == null) return null;
+    if (sessionId != null && s.sessionId !== sessionId) return null; // a different session
+    return s;
+  } catch (e) {
+    return null;
+  }
+}
+
+function strideClearProgress() {
+  try { localStorage.removeItem(STRIDE_PROGRESS_KEY); } catch (e) {}
+}
+
+/** How far in: sets logged + total, so the UI can say "4 of 15 sets". */
+function strideProgressStats(workout, progress) {
+  const done = progress && progress.completedSets ? Object.keys(progress.completedSets).length : 0;
+  const total = (workout && workout.exercises || []).reduce((n, ex) => n + ((ex.sets || []).length), 0);
+  return { done, total };
+}
+
+/**
+ * Whether the automatic rest timer is armed: the setting saved with the session
+ * being resumed, else the last one used, else armed.
+ */
+function strideResumeAuto() {
+  const progress = strideActiveProgress();
+  if (progress && typeof progress.auto === 'boolean') return progress.auto;
+  try {
+    const last = localStorage.getItem('stride_auto_rest');
+    if (last !== null) return last === '1';
+  } catch (e) {}
+  return true;
+}
+
+/** True when this session was started and still has work left. */
+function strideIsInProgress(workout) {
+  if (!workout || workout.id == null || workout.status === 'done') return false;
+  const progress = strideActiveProgress(workout.id);
+  const { done, total } = strideProgressStats(workout, progress);
+  if (done > 0 && done < total) return true;
+  // Started on another device / before this install — the server knows.
+  return !!workout.startedAt && done === 0 ? true : false;
+}
+
 Object.assign(window, {
-  renderCoachMarkdown,
+  StrideSplit,
+  renderCoachMarkdown, useSwipeNav,
   StrideIcon, BodySilhouette, StrideLineChart, ProgressRing,
-  StrideBottomNav, StrideHeader, Chip, StrideButton, IconBtn, Card, Screen,
+  StrideBottomNav, StrideSideNav, useStrideWide, StrideHeader, Chip, StrideButton, IconBtn, Card, Screen,
   StrideToggle, useStridePrefs, setStridePref, readStridePrefs,
   readStrideSpots, saveStrideSpots, useStrideSpots, spotTypeMeta,
   readStrideEquipment, saveStrideEquipment, useStrideEquipment,
   readEquipmentPrefs, useEquipmentPrefs,
   readStrideRequests, saveStrideRequests, addStrideRequest, setRequestStatus, useStrideRequests,
   formatRest, PrInput, PrField, PrEditor, FormQuality, strideFormatPr,
+  strideExFk, stridePrScore, strideDetectPr,
+  STRIDE_PROGRESS_KEY, strideActiveProgress, strideClearProgress, strideProgressStats, strideIsInProgress,
+  strideCompletion,
+  strideResumeAuto,
 });

@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import { transform } from 'esbuild'
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 // Stride dev/build server.
@@ -21,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 // design-editor-only file and is intentionally excluded.
 const PROTO_FILES = [
   'ios-frame', 'android-frame', 'data', 'data-live', 'i18n-sk', 'i18n', 'ui',
-  'screens-main', 'screens-spots', 'screens-meta', 'screens-train', 'screens-onboarding', 'app',
+  'screens-main', 'screens-web', 'screens-spots', 'screens-meta', 'screens-train', 'screens-onboarding', 'screens-ai', 'screens-workouts', 'screens-routines', 'app',
 ]
 
 const PROTO_DIR = fileURLToPath(new URL('./public/proto', import.meta.url))
@@ -67,7 +68,19 @@ function strideProto(): Plugin {
     },
     // Build: emit the single precompiled bundle into dist/proto/bundle.js.
     async generateBundle() {
-      this.emitFile({ type: 'asset', fileName: 'proto/bundle.js', source: await compileProto() })
+      const proto = await compileProto()
+      this.emitFile({ type: 'asset', fileName: 'proto/bundle.js', source: proto })
+      const publicDir = fileURLToPath(new URL('./public', import.meta.url))
+      const files = (await readdir(publicDir, { recursive: true })).filter((name) =>
+        /\.(js|css|woff2|png|svg|webmanifest)$/.test(name) && !name.startsWith('proto/')
+      ).sort()
+      const template = await readFile('service-worker.js', 'utf8')
+      const hash = createHash('sha256').update(proto).update(await readFile('index.html')).update(template)
+      for (const file of files) hash.update(await readFile(`${publicDir}/${file}`))
+      const worker = template
+        .replace('__BUILD_ID__', hash.digest('hex').slice(0, 16))
+        .replace('__PRECACHE_ASSETS__', JSON.stringify(['/index.html', '/proto/bundle.js', ...files.map((file) => '/' + file)]))
+      this.emitFile({ type: 'asset', fileName: 'sw.js', source: worker })
     },
   }
 }
@@ -75,6 +88,16 @@ function strideProto(): Plugin {
 export default defineConfig({
   plugins: [strideProto()],
   server: {
+    host: true,
+    port: 5180,
+    proxy: {
+      '/api/stride': {
+        target: process.env.STRIDE_API_TARGET || 'http://127.0.0.1:8100',
+        changeOrigin: true,
+      },
+    },
+  },
+  preview: {
     host: true,
     port: 5180,
   },

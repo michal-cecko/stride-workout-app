@@ -272,7 +272,7 @@ function InjuryDetailScreen({ go }) {
             flex: 1, padding: '13px 16px', borderRadius: 12,
             background: TM.surface, border: `1px solid ${TM.line}`, color: TM.ink,
             cursor: 'pointer', fontFamily: 'Archivo, sans-serif', fontWeight: 800, fontSize: 13,
-          }}>Back</button>
+          }}>‹ Back</button>
           <button disabled={!dirty} onClick={saveChanges} style={{
             flex: 1.5, padding: '13px 16px', borderRadius: 12,
             background: dirty ? TM.ink : TM.lineSoft,
@@ -800,7 +800,27 @@ function LibraryScreen({ go }) {
   };
   const clearAllFilters = () => setFilters({ diff: new Set(), equip: new Set() });
 
+  const wide = useStrideWide();
+  // Two cards a row on a phone; as many as fit on desktop.
+  const cardGrid = wide ? 'repeat(auto-fill, minmax(170px, 1fr))' : '1fr 1fr';
+
   return (
+    <StrideSplit title={exerciseOpen && exerciseOpen.name} onClose={() => setExerciseOpen(null)}
+      empty={window.t('Pick an exercise to see how it is done.')}
+      detail={exerciseOpen && (
+        <ExerciseSheet
+          key={exerciseOpen.id || exerciseOpen.name}
+          ex={exerciseOpen}
+          onClose={() => setExerciseOpen(null)}
+          isFav={favorites.has(exerciseOpen.name)}
+          isHidden={hidden.has(exerciseOpen.name)}
+          onToggleFav={() => toggleFav(exerciseOpen.name)}
+          onToggleHide={() => toggleHide(exerciseOpen.name)}
+          onOpenExercise={(e) => setExerciseOpen(e)}
+          onPlayVideo={() => setVideoEx(exerciseOpen)}
+        />
+      )}
+      list={(
     <Screen>
       <StrideHeader title="Library" right={
         tab === 'spots' ? (
@@ -944,7 +964,7 @@ function LibraryScreen({ go }) {
               <div style={{ fontFamily: 'Inter', fontSize: 12, color: TM.ink3, marginTop: 4 }}>Try clearing a filter chip above.</div>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: cardGrid, gap: 10 }}>
               <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: -2 }}>
                 <div style={{ fontFamily: 'Inter', fontSize: 11, color: TM.ink3, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700 }}>{hiddenListFiltered.length} hidden</div>
                 <button onClick={() => { if (confirm('Unhide all exercises?')) setHidden(new Set()); }} style={{
@@ -980,14 +1000,14 @@ function LibraryScreen({ go }) {
               <div style={{ fontFamily: 'Inter', fontSize: 12, color: TM.ink3, marginTop: 4 }}>Try clearing a filter chip above.</div>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: cardGrid, gap: 10 }}>
               <div style={{ gridColumn: '1 / -1', fontFamily: 'Inter', fontSize: 11, color: TM.ink3, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700, marginBottom: -2 }}>{favListFiltered.length} favorites</div>
               {favListFiltered.map((ex, i) => <ExerciseCard key={i} ex={ex} isFav={favorites.has(ex.name)} onToggleFav={() => toggleFav(ex.name)} onClick={() => setExerciseOpen(ex)}/>)}
             </div>
           )
         ) : search ? (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: cardGrid, gap: 10 }}>
               <div style={{ gridColumn: '1 / -1', fontFamily: 'Inter', fontSize: 11, color: TM.ink3, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700, marginBottom: -2 }}>{filtered.length} results</div>
               {filtered.map((ex, i) => <ExerciseCard key={i} ex={ex} isFav={favorites.has(ex.name)} onToggleFav={() => toggleFav(ex.name)} onClick={() => setExerciseOpen(ex)}/>)}
             </div>
@@ -1012,7 +1032,7 @@ function LibraryScreen({ go }) {
           <>
             {/* Children categories */}
             {node.children && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: cardGrid, gap: 10 }}>
                 {node.children.map(c => {
                   const isLeaf = c.exercises && c.exercises.length > 0 && !c.children;
                   const color = categoryColor(path[0] || c.id);
@@ -1029,9 +1049,6 @@ function LibraryScreen({ go }) {
                       }}>
                         <div style={{ position: 'absolute', right: -10, bottom: -14, opacity: 0.22 }}>
                           <StrideIcon name={isLeaf ? 'dumbbell' : 'folder'} size={92} color="#fff"/>
-                        </div>
-                        <div style={{ position: 'absolute', left: 10, top: 10, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 11, color: '#fff', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.9 }}>
-                          {isLeaf ? 'Exercises' : 'Group'}
                         </div>
                         <div style={{ position: 'absolute', left: 10, bottom: 8, fontFamily: 'Archivo, sans-serif', fontWeight: 900, fontSize: 22, color: '#fff', lineHeight: 1 }}>
                           {total}
@@ -1053,7 +1070,7 @@ function LibraryScreen({ go }) {
             {node.exercises && (() => {
               const list = node.exercises.filter(notHidden).filter(matchesFilters);
               return (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: node.children ? 14 : 0 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: cardGrid, gap: 10, marginTop: node.children ? 14 : 0 }}>
                   {list.map((ex, i) => <ExerciseCard key={i} ex={ex} isFav={favorites.has(ex.name)} onToggleFav={() => toggleFav(ex.name)} onClick={() => setExerciseOpen(ex)}/>)}
                 </div>
               );
@@ -1083,21 +1100,6 @@ function LibraryScreen({ go }) {
         <div style={{ height: 30 }}/>
       </div>
 
-      {exerciseOpen && (
-        <Sheet title={exerciseOpen.name} onClose={() => setExerciseOpen(null)}>
-          <ExerciseSheet
-            ex={exerciseOpen}
-            onClose={() => setExerciseOpen(null)}
-            isFav={favorites.has(exerciseOpen.name)}
-            isHidden={hidden.has(exerciseOpen.name)}
-            onToggleFav={() => toggleFav(exerciseOpen.name)}
-            onToggleHide={() => toggleHide(exerciseOpen.name)}
-            onOpenExercise={(e) => setExerciseOpen(e)}
-            onPlayVideo={() => setVideoEx(exerciseOpen)}
-          />
-        </Sheet>
-      )}
-
       {videoEx && <FormVideoOverlay ex={videoEx} onClose={() => setVideoEx(null)}/>}
 
       {filterOpen && (
@@ -1119,6 +1121,7 @@ function LibraryScreen({ go }) {
         </Sheet>
       )}
     </Screen>
+      )}/>
   );
 }
 
@@ -1295,7 +1298,8 @@ function ExerciseSheet({ ex, onClose, isFav, isHidden, onToggleFav, onToggleHide
   const savePr = () => {
     if (!ex.id) return;
     setSaving(true);
-    window.__strideSavePr({ exercise_id: ex.id, label: ex.name, metric_type: metricType, metrics: draft, achieved_on: draftDate || null, form_quality: draftForm })
+    // Store the canonical English name — PR labels feed the coach and plan matching.
+    window.__strideSavePr({ exercise_id: ex.id, label: ex.nameEn || ex.name, metric_type: metricType, metrics: draft, achieved_on: draftDate || null, form_quality: draftForm })
       .then(() => { setPrs(myPrs()); setLogging(false); setDraft({}); setDraftForm(null); setSaving(false); })
       .catch(() => setSaving(false));
   };
