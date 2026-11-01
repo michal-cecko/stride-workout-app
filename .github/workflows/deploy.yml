@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   build-image:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -43,6 +44,7 @@ jobs:
 
   deploy:
     needs: build-image
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
 
@@ -55,10 +57,10 @@ jobs:
           IMG: ghcr.io/michal-cecko/stride-workout-app:sha-${{ github.sha }}
         run: |
           set -e
-          curl -sf -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \
+          curl -sSf -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \
             -d "{\"applicationId\":\"$APP\",\"dockerImage\":\"$IMG\"}" \
             "$API/api/application.update" > /dev/null
-          curl -sf -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \
+          curl -sSf -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \
             -d "{\"applicationId\":\"$APP\"}" \
             "$API/api/application.deploy" > /dev/null
           echo "deployed $APP -> $IMG"
